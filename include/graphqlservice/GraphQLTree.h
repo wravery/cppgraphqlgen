@@ -22,6 +22,9 @@ using namespace tao::graphqlpeg;
 
 struct ast_node : parse_tree::basic_node<ast_node>
 {
+	void* operator new(std::size_t sz);
+	void operator delete(void* p);
+
 	std::string_view unescaped_view() const;
 
 	std::variant<std::string_view, std::string> unescaped;

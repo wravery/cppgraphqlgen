@@ -7,15 +7,68 @@
 
 #include <tao/pegtl/contrib/unescape.hpp>
 
+#include <array>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <numeric>
+#include <queue>
 #include <tuple>
 
 using namespace std::literals;
 
 namespace graphql {
 namespace peg {
+
+namespace {
+
+struct pool_node
+{
+	const size_t index;
+	std::array<std::uint8_t, sizeof(ast_node)> buffer;
+};
+
+thread_local std::deque<pool_node> s_pool {};
+thread_local std::queue<size_t> s_free {};
+
+} // namespace
+
+void* ast_node::operator new(std::size_t)
+{
+	if (!s_free.empty())
+	{
+		const size_t index = s_free.front();
+
+		s_free.pop();
+
+		return reinterpret_cast<void*>(s_pool[index].buffer.data());
+	}
+
+	return reinterpret_cast<void*>(s_pool.emplace_back(pool_node { s_pool.size() }).buffer.data());
+}
+
+void ast_node::operator delete(void* p)
+{
+	if (s_free.size() + 1 >= s_pool.size())
+	{
+		std::queue<size_t> cleanup;
+
+		s_free.swap(cleanup);
+		s_pool.clear();
+
+		return;
+	}
+
+	static const size_t offset = []() noexcept {
+		pool_node node { 0 };
+
+		return node.buffer.data() - reinterpret_cast<std::uint8_t*>(&node);
+	}();
+
+	auto node = reinterpret_cast<pool_node*>(reinterpret_cast<std::uint8_t*>(p) - offset);
+
+	s_free.push(node->index);
+}
 
 std::string_view ast_node::unescaped_view() const
 {
