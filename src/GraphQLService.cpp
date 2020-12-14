@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <iostream>
+#include <stack>
 
 namespace graphql::service {
 
@@ -42,25 +43,38 @@ void addErrorLocation(const schema_location& location, response::Value& error)
 
 void addErrorPath(const field_path& path, response::Value& error)
 {
-	if (path.empty())
+	if (!path)
 	{
 		return;
 	}
 
+	std::stack<std::shared_ptr<const path_segment>> segments;
+	auto current = path;
+
+	while (current)
+	{
+		segments.push(current);
+		current = current->parent;
+	}
+
 	response::Value errorPath(response::Type::List);
 
-	errorPath.reserve(path.size());
-	for (const auto& segment : path)
+	errorPath.reserve(segments.size());
+
+	while (!segments.empty())
 	{
-		if (std::holds_alternative<std::string_view>(segment))
+		current = std::move(segments.top());
+		segments.pop();
+
+		if (std::holds_alternative<std::string_view>(current->current))
 		{
 			errorPath.emplace_back(
-				response::Value { std::string { std::get<std::string_view>(segment) } });
+				response::Value { std::string { std::get<std::string_view>(current->current) } });
 		}
-		else if (std::holds_alternative<size_t>(segment))
+		else if (std::holds_alternative<size_t>(current->current))
 		{
-			errorPath.emplace_back(
-				response::Value(static_cast<response::IntType>(std::get<size_t>(segment))));
+			errorPath.emplace_back(response::Value(
+				static_cast<response::IntType>(std::get<size_t>(current->current))));
 		}
 	}
 
@@ -1001,9 +1015,10 @@ void SelectionVisitor::visitField(const peg::ast_node& field)
 		selection = &child;
 	});
 
-	auto path = _path;
+	auto path = std::make_shared<path_segment>();
 
-	path.push_back({ alias });
+	path->parent = _path;
+	path->current = alias;
 
 	SelectionSetParams selectionSetParams {
 		_resolverContext,
@@ -1042,9 +1057,9 @@ void SelectionVisitor::visitField(const peg::ast_node& field)
 				message.location = { position.line, position.column };
 			}
 
-			if (message.path.empty())
+			if (!message.path)
 			{
-				message.path = { selectionSetParams.errorPath };
+				message.path = selectionSetParams.errorPath;
 			}
 		}
 
