@@ -8,11 +8,9 @@
 #include <tao/pegtl/contrib/unescape.hpp>
 
 #include <array>
-#include <deque>
 #include <functional>
 #include <memory>
 #include <numeric>
-#include <queue>
 #include <tuple>
 
 using namespace std::literals;
@@ -22,52 +20,52 @@ namespace peg {
 
 namespace {
 
-struct pool_node
+struct node_cache
 {
-	const size_t index;
-	std::array<std::uint8_t, sizeof(ast_node)> buffer;
+	~node_cache();
+
+	size_t available = 0;
+	std::array<void*, 32> data {};
 };
 
-thread_local std::deque<pool_node> s_pool {};
-thread_local std::queue<size_t> s_free {};
+thread_local node_cache s_cache;
+
+node_cache::~node_cache()
+{
+	if (available > 0)
+	{
+		std::for_each_n(data.begin(), available, [](void* entry) {
+			::operator delete(entry);
+		});
+	}
+}
 
 } // namespace
 
-void* ast_node::operator new(std::size_t)
+void* ast_node::operator new(std::size_t sz)
 {
-	if (!s_free.empty())
+	auto& cache = s_cache;
+
+	if (cache.available > 0)
 	{
-		const size_t index = s_free.front();
-
-		s_free.pop();
-
-		return reinterpret_cast<void*>(s_pool[index].buffer.data());
+		return cache.data[--cache.available];
 	}
 
-	return reinterpret_cast<void*>(s_pool.emplace_back(pool_node { s_pool.size() }).buffer.data());
+	return ::operator new(sz);
 }
 
 void ast_node::operator delete(void* p)
 {
-	if (s_free.size() + 1 >= s_pool.size())
+	auto& cache = s_cache;
+
+	if (cache.available < cache.data.size())
 	{
-		std::queue<size_t> cleanup;
-
-		s_free.swap(cleanup);
-		s_pool.clear();
-
-		return;
+		cache.data[cache.available++] = p;
 	}
-
-	static const size_t offset = []() noexcept {
-		pool_node node { 0 };
-
-		return node.buffer.data() - reinterpret_cast<std::uint8_t*>(&node);
-	}();
-
-	auto node = reinterpret_cast<pool_node*>(reinterpret_cast<std::uint8_t*>(p) - offset);
-
-	s_free.push(node->index);
+	else
+	{
+		::operator delete(p);
+	}
 }
 
 std::string_view ast_node::unescaped_view() const
