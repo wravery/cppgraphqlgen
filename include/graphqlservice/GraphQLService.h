@@ -55,19 +55,34 @@ struct schema_location
 	size_t column = 1;
 };
 
-struct path_segment : std::enable_shared_from_this<path_segment>
+using path_segment = std::variant<std::string_view, size_t>;
+
+struct stack_path;
+
+using field_path = std::optional<stack_path>;
+
+struct stack_path
 {
-	std::shared_ptr<const path_segment> parent;
-	std::variant<std::string_view, size_t> current;
+	stack_path(path_segment segment, const std::shared_ptr<stack_path>& parent) noexcept;
+	stack_path(path_segment segment, const field_path& parent) noexcept;
+
+	path_segment current;
+	std::shared_ptr<stack_path> parent;
 };
 
-using field_path = std::shared_ptr<const path_segment>;
+struct error_path
+{
+	error_path() noexcept = default;
+	error_path(const field_path& path) noexcept;
+
+	std::vector<path_segment> segments;
+};
 
 struct schema_error
 {
 	std::string message;
 	schema_location location;
-	field_path path;
+	error_path path;
 };
 
 GRAPHQLSERVICE_EXPORT response::Value buildErrorValues(
@@ -657,6 +672,10 @@ struct ModifiedResult
 			[](auto&& wrappedFuture, ResolverParams&& wrappedParams) {
 				auto wrappedResult = wrappedFuture.get();
 				std::vector<std::future<ResolverResult>> children;
+				const auto pathParent = wrappedParams.errorPath
+					? std::make_shared<stack_path>(wrappedParams.errorPath->current,
+						wrappedParams.errorPath->parent)
+					: nullptr;
 				size_t index = 0;
 
 				children.reserve(wrappedResult.size());
@@ -671,16 +690,14 @@ struct ModifiedResult
 					// Copy the values from the std::vector<> rather than moving them.
 					for (typename vector_type::value_type entry : wrappedResult)
 					{
-						auto pathSegment = std::make_shared<path_segment>();
+						auto errorPath = std::move(wrappedParams.errorPath);
 
-						pathSegment->current = index;
-						pathSegment->parent = wrappedParams.errorPath;
-						wrappedParams.errorPath = pathSegment;
+						wrappedParams.errorPath = stack_path { path_segment { index }, pathParent };
 
 						children.push_back(ModifiedResult::convert<Other...>(std::move(entry),
 							ResolverParams(wrappedParams)));
 
-						wrappedParams.errorPath = pathSegment->parent;
+						wrappedParams.errorPath = std::move(errorPath);
 						++index;
 					}
 				}
@@ -688,16 +705,14 @@ struct ModifiedResult
 				{
 					for (auto& entry : wrappedResult)
 					{
-						auto pathSegment = std::make_shared<path_segment>();
+						auto errorPath = std::move(wrappedParams.errorPath);
 
-						pathSegment->current = index;
-						pathSegment->parent = wrappedParams.errorPath;
-						wrappedParams.errorPath = pathSegment;
+						wrappedParams.errorPath = stack_path { path_segment { index }, pathParent };
 
 						children.push_back(ModifiedResult::convert<Other...>(std::move(entry),
 							ResolverParams(wrappedParams)));
 
-						wrappedParams.errorPath = pathSegment->parent;
+						wrappedParams.errorPath = std::move(errorPath);
 						++index;
 					}
 				}
@@ -743,14 +758,9 @@ struct ModifiedResult
 						message << "Field error name: " << wrappedParams.fieldName
 								<< " unknown error: " << ex.what();
 
-						auto pathSegment = std::make_shared<path_segment>();
-
-						pathSegment->current = index;
-						pathSegment->parent = wrappedParams.errorPath;
-
 						document.errors.emplace_back(schema_error { message.str(),
 							wrappedParams.getLocation(),
-							std::move(pathSegment) });
+							stack_path { path_segment { index }, pathParent } });
 					}
 
 					++index;
@@ -804,7 +814,7 @@ private:
 
 					document.errors.emplace_back(schema_error { message.str(),
 						paramsFuture.getLocation(),
-						std::move(paramsFuture.errorPath) });
+						paramsFuture.errorPath });
 				}
 
 				return document;

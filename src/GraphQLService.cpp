@@ -8,10 +8,41 @@
 
 #include <algorithm>
 #include <array>
+#include <deque>
 #include <iostream>
-#include <stack>
 
 namespace graphql::service {
+
+stack_path::stack_path(path_segment segment, const std::shared_ptr<stack_path>& parent) noexcept
+	: current { segment }
+	, parent { parent }
+{
+}
+
+stack_path::stack_path(path_segment segment, const field_path& parent) noexcept
+	: current { segment }
+	, parent { parent ? std::make_shared<stack_path>(*parent) : nullptr }
+{
+}
+
+error_path::error_path(const field_path& path) noexcept
+{
+	if (!path)
+	{
+		return;
+	}
+
+	std::deque<path_segment> stackSegments { path->current };
+
+	for (auto segment = std::cref(path->parent); segment.get();
+		 segment = std::cref(segment.get()->parent))
+	{
+		stackSegments.push_back(segment.get()->current);
+	}
+
+	segments.reserve(stackSegments.size());
+	std::copy(stackSegments.rbegin(), stackSegments.rend(), std::back_inserter(segments));
+}
 
 void addErrorMessage(std::string&& message, response::Value& error)
 {
@@ -41,40 +72,28 @@ void addErrorLocation(const schema_location& location, response::Value& error)
 	error.emplace_back(std::string { strLocations }, std::move(errorLocations));
 }
 
-void addErrorPath(const field_path& path, response::Value& error)
+void addErrorPath(const error_path& path, response::Value& error)
 {
-	if (!path)
+	if (path.segments.empty())
 	{
 		return;
 	}
 
-	std::stack<std::shared_ptr<const path_segment>> segments;
-	auto current = path;
-
-	while (current)
-	{
-		segments.push(current);
-		current = current->parent;
-	}
-
 	response::Value errorPath(response::Type::List);
 
-	errorPath.reserve(segments.size());
+	errorPath.reserve(path.segments.size());
 
-	while (!segments.empty())
+	for (const auto& segment : path.segments)
 	{
-		current = std::move(segments.top());
-		segments.pop();
-
-		if (std::holds_alternative<std::string_view>(current->current))
+		if (std::holds_alternative<std::string_view>(segment))
 		{
 			errorPath.emplace_back(
-				response::Value { std::string { std::get<std::string_view>(current->current) } });
+				response::Value { std::string { std::get<std::string_view>(segment) } });
 		}
-		else if (std::holds_alternative<size_t>(current->current))
+		else if (std::holds_alternative<size_t>(segment))
 		{
-			errorPath.emplace_back(response::Value(
-				static_cast<response::IntType>(std::get<size_t>(current->current))));
+			errorPath.emplace_back(
+				response::Value(static_cast<response::IntType>(std::get<size_t>(segment))));
 		}
 	}
 
@@ -724,9 +743,9 @@ void blockSubFields(const ResolverParams& params)
 
 		error << "Field may not have sub-fields name: " << params.fieldName;
 
-		throw schema_exception { { schema_error { error.str(),
-			{ position.line, position.column },
-			{ params.errorPath } } } };
+		throw schema_exception {
+			{ schema_error { error.str(), { position.line, position.column }, params.errorPath } }
+		};
 	}
 }
 
@@ -818,9 +837,9 @@ void requireSubFields(const ResolverParams& params)
 
 		error << "Field must have sub-fields name: " << params.fieldName;
 
-		throw schema_exception { { schema_error { error.str(),
-			{ position.line, position.column },
-			{ params.errorPath } } } };
+		throw schema_exception {
+			{ schema_error { error.str(), { position.line, position.column }, params.errorPath } }
+		};
 	}
 }
 
@@ -979,7 +998,7 @@ void SelectionVisitor::visitField(const peg::ast_node& field)
 		error << "Unknown field name: " << name;
 
 		promise.set_exception(std::make_exception_ptr(schema_exception {
-			{ schema_error { error.str(), { position.line, position.column }, { _path } } } }));
+			{ schema_error { error.str(), { position.line, position.column }, _path } } }));
 
 		_values.push_back({ alias, promise.get_future() });
 		return;
@@ -1015,11 +1034,6 @@ void SelectionVisitor::visitField(const peg::ast_node& field)
 		selection = &child;
 	});
 
-	auto path = std::make_shared<path_segment>();
-
-	path->parent = _path;
-	path->current = alias;
-
 	SelectionSetParams selectionSetParams {
 		_resolverContext,
 		_state,
@@ -1027,7 +1041,7 @@ void SelectionVisitor::visitField(const peg::ast_node& field)
 		_fragmentDirectives.back().fragmentDefinitionDirectives,
 		_fragmentDirectives.back().fragmentSpreadDirectives,
 		_fragmentDirectives.back().inlineFragmentDirectives,
-		std::move(path),
+		stack_path { path_segment { alias }, _path },
 		_launch,
 	};
 
@@ -1057,7 +1071,7 @@ void SelectionVisitor::visitField(const peg::ast_node& field)
 				message.location = { position.line, position.column };
 			}
 
-			if (!message.path)
+			if (message.path.segments.empty())
 			{
 				message.path = selectionSetParams.errorPath;
 			}
@@ -1078,7 +1092,7 @@ void SelectionVisitor::visitField(const peg::ast_node& field)
 		promise.set_exception(
 			std::make_exception_ptr(schema_exception { { schema_error { message.str(),
 				{ position.line, position.column },
-				std::move(selectionSetParams.errorPath) } } }));
+				selectionSetParams.errorPath } } }));
 
 		_values.push_back({ alias, promise.get_future() });
 	}
@@ -1097,7 +1111,7 @@ void SelectionVisitor::visitFragmentSpread(const peg::ast_node& fragmentSpread)
 		error << "Unknown fragment name: " << name;
 
 		throw schema_exception {
-			{ schema_error { error.str(), { position.line, position.column }, { _path } } }
+			{ schema_error { error.str(), { position.line, position.column }, _path } }
 		};
 	}
 
