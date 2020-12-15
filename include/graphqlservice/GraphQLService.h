@@ -760,7 +760,8 @@ struct ModifiedResult
 
 						document.errors.emplace_back(schema_error { message.str(),
 							wrappedParams.getLocation(),
-							stack_path { path_segment { index }, pathParent } });
+							std::make_optional(
+								stack_path { path_segment { index }, pathParent }) });
 					}
 
 					++index;
