@@ -8,9 +8,13 @@
 #include <tao/pegtl/contrib/unescape.hpp>
 
 #include <array>
+#include <bitset>
+#include <deque>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <numeric>
+#include <stdexcept>
 #include <tuple>
 
 using namespace std::literals;
@@ -20,52 +24,198 @@ namespace peg {
 
 namespace {
 
-struct node_cache
-{
-	~node_cache();
+constexpr size_t bucket_size = 32;
 
+class node_pool
+{
+public:
+	static void* alloc(size_t size);
+	static void free(void* p);
+
+private:
+	struct bucket
+	{
+		using used_list = std::bitset<bucket_size>;
+		using entry = std::array<std::uint8_t, sizeof(ast_node)>;
+
+		static constexpr used_list mask_bits(size_t start, size_t end) noexcept;
+		size_t next_available(size_t start = 0, size_t end = bucket_size) const noexcept;
+
+		std::bitset<bucket_size> used;
+		std::array<entry, bucket_size> entries;
+	};
+
+	struct pointer_range
+	{
+		pointer_range(void* p) noexcept;
+		pointer_range(const std::unique_ptr<bucket>& bucket) noexcept;
+
+		const void* begin;
+		const void* end;
+	};
+
+	static node_pool& get() noexcept;
+
+	std::mutex mutex;
 	size_t available = 0;
-	std::array<void*, 32> data {};
+	std::deque<std::unique_ptr<bucket>> buckets;
 };
 
-thread_local node_cache s_cache;
-
-node_cache::~node_cache()
+constexpr node_pool::bucket::used_list node_pool::bucket::mask_bits(
+	size_t start, size_t end) noexcept
 {
-	if (available > 0)
+	const size_t count = end - start;
+
+	return { ((unsigned long long(1) << count) - 1) << start };
+}
+
+size_t node_pool::bucket::next_available(size_t start, size_t end) const noexcept
+{
+	const size_t count = end - start;
+
+	if ((used | ~mask_bits(start, end)).all())
 	{
-		std::for_each_n(data.begin(), available, [](void* entry) {
-			::operator delete(entry);
+		return end;
+	}
+
+	if (count > 1)
+	{
+		const size_t middle = start + (count / 2);
+		const size_t left = next_available(start, middle);
+
+		if (left < middle)
+		{
+			return left;
+		}
+
+		const size_t right = next_available(middle, end);
+
+		return right;
+	}
+
+	return start;
+}
+
+node_pool::pointer_range::pointer_range(void* p) noexcept
+	: begin { p }
+	, end { p }
+{
+}
+
+node_pool::pointer_range::pointer_range(const std::unique_ptr<bucket>& bucket) noexcept
+	: begin { bucket->entries.data() }
+	, end { bucket->entries.data() + bucket->entries.size() }
+{
+}
+
+node_pool& node_pool::get() noexcept
+{
+	static node_pool s_instance;
+
+	return s_instance;
+}
+
+void* node_pool::alloc(size_t size)
+{
+	if (size != sizeof(ast_node))
+	{
+		throw std::logic_error("node_pool entry size mismatch");
+	}
+
+	auto& cache = get();
+
+	std::lock_guard lock(cache.mutex);
+
+	if (cache.available > 0)
+	{
+		// Find an unused allocation in the existing buckets.
+		const auto itr =
+			std::find_if(cache.buckets.begin(),
+			cache.buckets.end(),
+			[](const auto& bucket) noexcept {
+				return !bucket->used.all();
+			});
+		auto& bucket = *itr;
+		const auto index = bucket->next_available();
+		const auto buffer = bucket->entries[index].data();
+
+		--cache.available;
+		bucket->used.set(index);
+
+		return reinterpret_cast<void*>(buffer);
+	}
+
+	// Allocate a new bucket and insert it, sorted by the pointer.
+	auto bucket = std::make_unique<node_pool::bucket>();
+	constexpr size_t index = 0;
+	const auto buffer = bucket->entries[index].data();
+
+	bucket->used.set(index);
+
+	const auto itrInsert = std::lower_bound(cache.buckets.begin(),
+		cache.buckets.end(),
+		bucket,
+		[](const auto& lhs, const auto& rhs) noexcept {
+			return lhs.get() < rhs.get();
 		});
+	const auto itr = cache.buckets.insert(itrInsert, std::move(bucket));
+
+	cache.available += bucket_size - 1;
+
+	return reinterpret_cast<void*>(buffer);
+}
+
+void node_pool::free(void* p)
+{
+	auto& cache = get();
+
+	std::lock_guard lock(cache.mutex);
+
+	// Find the bucket based on the pointer's sort position.
+	const auto [itr, itrEnd] = std::equal_range(cache.buckets.begin(),
+		cache.buckets.end(),
+		p,
+		[](pointer_range lhs, pointer_range rhs) noexcept {
+			return lhs.end < rhs.begin;
+		});
+
+	if (itr == itrEnd)
+	{
+		throw std::logic_error("unrecognized pointer");
+	}
+
+	auto& bucket = *itr;
+	const size_t index = reinterpret_cast<bucket::entry*>(p) - itr->get()->entries.data();
+
+	if (!bucket->used[index])
+	{
+		throw std::logic_error("pointer already freed");
+	}
+
+	bucket->used.reset(index);
+
+	if (cache.available >= bucket_size && bucket->used.none())
+	{
+		// Free the entire bucket when it's no longer needed.
+		cache.available -= bucket_size - 1;
+		cache.buckets.erase(itr);
+	}
+	else
+	{
+		++cache.available;
 	}
 }
 
 } // namespace
 
-void* ast_node::operator new(std::size_t sz)
+void* ast_node::operator new(std::size_t size)
 {
-	auto& cache = s_cache;
-
-	if (cache.available > 0)
-	{
-		return cache.data[--cache.available];
-	}
-
-	return ::operator new(sz);
+	return node_pool::alloc(size);
 }
 
 void ast_node::operator delete(void* p)
 {
-	auto& cache = s_cache;
-
-	if (cache.available < cache.data.size())
-	{
-		cache.data[cache.available++] = p;
-	}
-	else
-	{
-		::operator delete(p);
-	}
+	node_pool::free(p);
 }
 
 std::string_view ast_node::unescaped_view() const
