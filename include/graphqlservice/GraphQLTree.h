@@ -6,6 +6,8 @@
 #ifndef GRAPHQLTREE_H
 #define GRAPHQLTREE_H
 
+#include "graphqlservice/GraphQLParse.h"
+
 #define TAO_PEGTL_NAMESPACE tao::graphqlpeg
 
 #include <tao/pegtl.hpp>
@@ -25,7 +27,7 @@ struct ast_node : parse_tree::basic_node<ast_node>
 	void* operator new(std::size_t sz);
 	void operator delete(void* p);
 
-	std::string_view unescaped_view() const;
+	GRAPHQLPEG_EXPORT std::string_view unescaped_view() const;
 
 	std::variant<std::string_view, std::string> unescaped;
 };
