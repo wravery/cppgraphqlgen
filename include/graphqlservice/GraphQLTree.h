@@ -13,6 +13,7 @@
 #include <tao/pegtl.hpp>
 #include <tao/pegtl/contrib/parse_tree.hpp>
 
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -38,6 +39,10 @@ public:
 
 	// Must be destructible
 	~ast_node() = default;
+
+	[[nodiscard]] GRAPHQLPEG_EXPORT static std::lock_guard<std::mutex> lock_allocator() noexcept;
+	[[nodiscard]] GRAPHQLPEG_EXPORT void* operator new(size_t sz);
+	GRAPHQLPEG_EXPORT void operator delete(void* p);
 
 	[[nodiscard]] GRAPHQLPEG_EXPORT bool is_root() const noexcept;
 	[[nodiscard]] GRAPHQLPEG_EXPORT position begin() const noexcept;

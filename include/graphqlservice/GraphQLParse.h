@@ -29,6 +29,8 @@ struct ast_input;
 
 struct ast
 {
+	~ast();
+
 	std::shared_ptr<ast_input> input;
 	std::shared_ptr<ast_node> root;
 	bool validated = false;

@@ -7,6 +7,8 @@
 
 #include <tao/pegtl/contrib/unescape.hpp>
 
+#include <bitset>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <numeric>
@@ -16,6 +18,209 @@ using namespace std::literals;
 
 namespace graphql {
 namespace peg {
+
+namespace {
+
+constexpr size_t bucket_size = 32;
+
+class node_pool
+{
+public:
+	static std::lock_guard<std::mutex> lock() noexcept;
+	static void* alloc(size_t size);
+	static void free(void* p);
+
+private:
+	struct bucket
+	{
+		using used_list = std::bitset<bucket_size>;
+		using entry = std::array<std::uint8_t, sizeof(ast_node)>;
+
+		static constexpr used_list mask_bits(size_t start, size_t end) noexcept;
+		size_t next_available(size_t start = 0, size_t end = bucket_size) const noexcept;
+
+		std::bitset<bucket_size> used;
+		std::array<entry, bucket_size> entries;
+	};
+
+	struct pointer_range
+	{
+		pointer_range(void* p) noexcept;
+		pointer_range(const std::unique_ptr<bucket>& bucket) noexcept;
+
+		const void* begin;
+		const void* end;
+	};
+
+	static node_pool& get() noexcept;
+
+	std::mutex mutex;
+	size_t available = 0;
+	std::deque<std::unique_ptr<bucket>> buckets;
+};
+
+constexpr node_pool::bucket::used_list node_pool::bucket::mask_bits(
+	size_t start, size_t end) noexcept
+{
+	constexpr unsigned long long lowbit = 1;
+	const size_t count = end - start;
+
+	return { ((lowbit << count) - 1) << start };
+}
+
+size_t node_pool::bucket::next_available(size_t start, size_t end) const noexcept
+{
+	const size_t count = end - start;
+
+	if ((used | ~mask_bits(start, end)).all())
+	{
+		return end;
+	}
+
+	if (count > 1)
+	{
+		const size_t middle = start + (count / 2);
+		const size_t left = next_available(start, middle);
+
+		if (left < middle)
+		{
+			return left;
+		}
+
+		const size_t right = next_available(middle, end);
+
+		return right;
+	}
+
+	return start;
+}
+
+node_pool::pointer_range::pointer_range(void* p) noexcept
+	: begin { p }
+	, end { p }
+{
+}
+
+node_pool::pointer_range::pointer_range(const std::unique_ptr<bucket>& bucket) noexcept
+	: begin { bucket->entries.data() }
+	, end { bucket->entries.data() + bucket->entries.size() }
+{
+}
+
+node_pool& node_pool::get() noexcept
+{
+	static node_pool s_instance;
+
+	return s_instance;
+}
+
+std::lock_guard<std::mutex> node_pool::lock() noexcept
+{
+	return std::lock_guard { get().mutex };
+}
+
+void* node_pool::alloc(size_t size)
+{
+	if (size != sizeof(ast_node))
+	{
+		throw std::logic_error("node_pool entry size mismatch");
+	}
+
+	auto& cache = get();
+
+	if (cache.available > 0)
+	{
+		// Find an unused allocation in the existing buckets.
+		const auto itr = std::find_if(cache.buckets.begin(),
+			cache.buckets.end(),
+			[](const auto& bucket) noexcept {
+				return !bucket->used.all();
+			});
+		auto& bucket = *itr;
+		const auto index = bucket->next_available();
+		const auto buffer = bucket->entries[index].data();
+
+		--cache.available;
+		bucket->used.set(index);
+
+		return reinterpret_cast<void*>(buffer);
+	}
+
+	// Allocate a new bucket and insert it, sorted by the pointer.
+	auto bucket = std::make_unique<node_pool::bucket>();
+	constexpr size_t index = 0;
+	const auto buffer = bucket->entries[index].data();
+
+	bucket->used.set(index);
+
+	const auto itrInsert = std::lower_bound(cache.buckets.begin(),
+		cache.buckets.end(),
+		bucket,
+		[](const auto& lhs, const auto& rhs) noexcept {
+			return lhs.get() < rhs.get();
+		});
+	const auto itr = cache.buckets.insert(itrInsert, std::move(bucket));
+
+	cache.available += bucket_size - 1;
+
+	return reinterpret_cast<void*>(buffer);
+}
+
+void node_pool::free(void* p)
+{
+	auto& cache = get();
+
+	// Find the bucket based on the pointer's sort position.
+	const auto [itr, itrEnd] = std::equal_range(cache.buckets.begin(),
+		cache.buckets.end(),
+		p,
+		[](pointer_range lhs, pointer_range rhs) noexcept {
+			return lhs.end < rhs.begin;
+		});
+
+	if (itr == itrEnd)
+	{
+		throw std::logic_error("unrecognized pointer");
+	}
+
+	auto& bucket = *itr;
+	const size_t index = reinterpret_cast<bucket::entry*>(p) - itr->get()->entries.data();
+
+	if (!bucket->used[index])
+	{
+		throw std::logic_error("pointer already freed");
+	}
+
+	bucket->used.reset(index);
+
+	if (cache.available >= bucket_size && bucket->used.none())
+	{
+		// Free the entire bucket when it's no longer needed.
+		cache.available -= bucket_size - 1;
+		cache.buckets.erase(itr);
+	}
+	else
+	{
+		++cache.available;
+	}
+}
+
+} // namespace
+
+std::lock_guard<std::mutex> ast_node::lock_allocator() noexcept
+{
+	return node_pool::lock();
+}
+
+void* ast_node::operator new(size_t size)
+{
+	return node_pool::alloc(size);
+}
+
+void ast_node::operator delete(void* p)
+{
+	node_pool::free(p);
+}
 
 bool ast_node::is_root() const noexcept
 {
@@ -62,11 +267,13 @@ std::string_view ast_node::unescaped_view() const
 				joined.append(child->string_view());
 			}
 
-			const_cast<ast_node*>(this)->_unescaped = std::make_unique<unescaped_t>(std::move(joined));
+			const_cast<ast_node*>(this)->_unescaped =
+				std::make_unique<unescaped_t>(std::move(joined));
 		}
 		else if (!children.empty())
 		{
-			const_cast<ast_node*>(this)->_unescaped = std::make_unique<unescaped_t>(children.front()->string_view());
+			const_cast<ast_node*>(this)->_unescaped =
+				std::make_unique<unescaped_t>(children.front()->string_view());
 		}
 		else if (has_content() && is_type<escaped_unicode>())
 		{
@@ -77,11 +284,13 @@ std::string_view ast_node::unescaped_view() const
 			utf8.reserve((content.size() + 1) / 2);
 			unescape::unescape_j::apply(in, utf8);
 
-			const_cast<ast_node*>(this)->_unescaped = std::make_unique<unescaped_t>(std::move(utf8));
+			const_cast<ast_node*>(this)->_unescaped =
+				std::make_unique<unescaped_t>(std::move(utf8));
 		}
 		else
 		{
-			const_cast<ast_node*>(this)->_unescaped = std::make_unique<unescaped_t>(std::string_view {});
+			const_cast<ast_node*>(this)->_unescaped =
+				std::make_unique<unescaped_t>(std::string_view {});
 		}
 	}
 
@@ -711,6 +920,16 @@ template <>
 const std::string ast_control<document_content>::error_message =
 	"Expected http://spec.graphql.org/June2018/#Document";
 
+ast::~ast()
+{
+	if (root.unique())
+	{
+		auto lock = ast_node::lock_allocator();
+
+		root.reset();
+	}
+}
+
 ast parseString(std::string_view input)
 {
 	ast result { std::make_shared<ast_input>(
@@ -718,6 +937,7 @@ ast parseString(std::string_view input)
 		{} };
 	const auto& data = std::get<std::vector<char>>(result.input->data);
 	memory_input<> in(data.data(), data.size(), "GraphQL");
+	auto lock = ast_node::lock_allocator();
 
 	result.root =
 		parse_tree::parse<document, ast_node, ast_selector, nothing, ast_control>(std::move(in));
@@ -731,6 +951,7 @@ ast parseFile(std::string_view filename)
 					 ast_input { std::make_unique<file_input<>>(filename) }),
 		{} };
 	auto& in = *std::get<std::unique_ptr<file_input<>>>(result.input->data);
+	auto lock = ast_node::lock_allocator();
 
 	result.root =
 		parse_tree::parse<document, ast_node, ast_selector, nothing, ast_control>(std::move(in));
@@ -738,11 +959,12 @@ ast parseFile(std::string_view filename)
 	return result;
 }
 
-} /* namespace peg */
+} // namespace peg
 
 peg::ast operator"" _graphql(const char* text, size_t size)
 {
 	peg::memory_input<> in(text, size, "GraphQL");
+	auto lock = peg::ast_node::lock_allocator();
 
 	return { std::make_shared<peg::ast_input>(
 				 peg::ast_input { { std::string_view { text, size } } }),
