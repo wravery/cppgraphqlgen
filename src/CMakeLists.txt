@@ -63,6 +63,7 @@ endfunction()
 
 add_library(graphqlcoro INTERFACE)
 target_compile_features(graphqlcoro INTERFACE cxx_std_20)
+target_link_libraries(graphqlcoro INTERFACE Threads::Threads)
 
 function(check_coroutine_impl COROUTINE_HEADER COROUTINE_NAMESPACE OPTIONAL_FLAGS OUT_RESULT)
   set(TEST_FILE "test_${OUT_RESULT}.cpp")
@@ -71,6 +72,7 @@ function(check_coroutine_impl COROUTINE_HEADER COROUTINE_NAMESPACE OPTIONAL_FLAG
   try_compile(TEST_RESULT
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}/${TEST_FILE}
+    LINK_LIBRARIES Threads::Threads
     CXX_STANDARD 20)
 
   if(NOT TEST_RESULT)
@@ -79,7 +81,8 @@ function(check_coroutine_impl COROUTINE_HEADER COROUTINE_NAMESPACE OPTIONAL_FLAG
         try_compile(TEST_RESULT
           ${CMAKE_CURRENT_BINARY_DIR}
           ${CMAKE_CURRENT_BINARY_DIR}/${TEST_FILE}
-          CMAKE_FLAGS "-DCOMPILE_DEFINITIONS:STRING=${OPTIONAL_FLAG}"
+          COMPILE_DEFINITIONS ${OPTIONAL_FLAG}
+          LINK_LIBRARIES Threads::Threads
           CXX_STANDARD 20)
   
         if(TEST_RESULT)
@@ -97,7 +100,7 @@ check_coroutine_impl("coroutine" "std" "-fcoroutines" STD_COROUTINE)
 if(STD_COROUTINE)
   message(STATUS "Using std coroutine")
 else()
-  check_coroutine_impl("experimental/coroutine" "std::experimental" "" STD_EXPERIMENTAL_COROUTINE)
+  check_coroutine_impl("experimental/coroutine" "std::experimental" "-stdlib=libc++" STD_EXPERIMENTAL_COROUTINE)
   if(STD_EXPERIMENTAL_COROUTINE)
     message(STATUS "Using std::experimental coroutine")
     target_compile_definitions(graphqlcoro INTERFACE USE_STD_EXPERIMENTAL_COROUTINE)
@@ -298,8 +301,7 @@ add_library(graphqlservice
 add_library(cppgraphqlgen::graphqlservice ALIAS graphqlservice)
 target_link_libraries(graphqlservice PUBLIC
   graphqlpeg
-  graphqlresponse
-  Threads::Threads)
+  graphqlresponse)
 
 if(GRAPHQL_UPDATE_SAMPLES)
   # Even though this target doesn't build IntrospectionSchema.cpp, it still
