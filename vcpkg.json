@@ -1,6 +1,6 @@
 {
-  "name": "current-cppgraphqlgen",
-  "version-string": "current",
+  "name": "cppgraphqlgen",
+  "version-string": "head",
   "features": {
     "schemagen": {
       "description": "Build the schemagen tool.",
@@ -24,7 +24,7 @@
       "description": "Regenerate the sample schema sources whether or not we're building the tests.",
       "dependencies": [
         {
-          "name": "current-cppgraphqlgen",
+          "name": "cppgraphqlgen",
           "default-features": false,
           "features": [
             "schemagen",
