@@ -261,6 +261,158 @@ struct [[nodiscard("unnecessary construction")]] FragmentSpreadDirectiveStack
 	const std::shared_ptr<FragmentSpreadDirectiveStack> outer;
 };
 
+// Type-erased visitor for resolvers.
+class [[nodiscard("unnecessary construction")]] ResolverVisitor final
+	: public std::enable_shared_from_this<ResolverVisitor>
+{
+private:
+	struct Concept
+	{
+		virtual ~Concept() = default;
+
+		virtual void add_value(std::shared_ptr<const response::Value>&& value) = 0;
+
+		virtual void reserve(size_t count) = 0;
+
+		virtual void start_object() = 0;
+		virtual void add_member(std::string&& key) = 0;
+		virtual void end_object() = 0;
+
+		virtual void start_array() = 0;
+		virtual void end_arrary() = 0;
+
+		virtual void add_null() = 0;
+		virtual void add_string(std::string&& value) = 0;
+		virtual void add_enum(std::string&& value) = 0;
+		virtual void add_id(response::IdType&& value) = 0;
+		virtual void add_bool(bool value) = 0;
+		virtual void add_int(int value) = 0;
+		virtual void add_float(double value) = 0;
+
+		virtual void add_error(schema_error&& error) = 0;
+	};
+
+	template <class T>
+	struct Model : Concept
+	{
+		explicit Model(std::unique_ptr<T> pimpl) noexcept
+			: _pimpl { std::move(pimpl) }
+		{
+		}
+
+		void add_value(std::shared_ptr<const response::Value>&& value) final
+		{
+			_pimpl->add_value(std::move(value));
+		}
+
+		void reserve(size_t count) final
+		{
+			_pimpl->reserve(count);
+		}
+
+		void start_object() final
+		{
+			_pimpl->start_object();
+		}
+
+		void add_member(std::string&& key) final
+		{
+			_pimpl->add_member(std::move(key));
+		}
+
+		void end_object() final
+		{
+			_pimpl->end_object();
+		}
+
+		void start_array() final
+		{
+			_pimpl->start_array();
+		}
+
+		void end_arrary() final
+		{
+			_pimpl->end_arrary();
+		}
+
+		void add_null() final
+		{
+			_pimpl->add_null();
+		}
+
+		void add_string(std::string&& value) final
+		{
+			_pimpl->add_string(std::move(value));
+		}
+
+		void add_enum(std::string&& value) final
+		{
+			_pimpl->add_enum(std::move(value));
+		}
+
+		void add_id(response::IdType&& value) final
+		{
+			_pimpl->add_id(std::move(value));
+		}
+
+		void add_bool(bool value) final
+		{
+			_pimpl->add_bool(value);
+		}
+
+		void add_int(int value) final
+		{
+			_pimpl->add_int(value);
+		}
+
+		void add_float(double value) final
+		{
+			_pimpl->add_float(value);
+		}
+
+		void add_error(schema_error&& error) final
+		{
+			_pimpl->add_error(std::move(error));
+		}
+
+	private:
+		std::unique_ptr<T> _pimpl;
+	};
+
+	const std::shared_ptr<Concept> _concept;
+
+public:
+	template <class T>
+	ResolverVisitor(std::unique_ptr<T> writer) noexcept
+		: _concept { std::static_pointer_cast<Concept>(
+			std::make_shared<Model<T>>(std::move(writer))) }
+	{
+	}
+
+	GRAPHQLSERVICE_EXPORT void add_value(std::shared_ptr<const response::Value>&& value);
+
+	GRAPHQLSERVICE_EXPORT void reserve(size_t count);
+
+	GRAPHQLSERVICE_EXPORT void start_object();
+	GRAPHQLSERVICE_EXPORT void add_member(std::string&& key);
+	GRAPHQLSERVICE_EXPORT void end_object();
+
+	GRAPHQLSERVICE_EXPORT void start_array();
+	GRAPHQLSERVICE_EXPORT void end_arrary();
+
+	GRAPHQLSERVICE_EXPORT void add_null();
+	GRAPHQLSERVICE_EXPORT void add_string(std::string&& value);
+	GRAPHQLSERVICE_EXPORT void add_enum(std::string&& value);
+	GRAPHQLSERVICE_EXPORT void add_id(response::IdType&& value);
+	GRAPHQLSERVICE_EXPORT void add_bool(bool value);
+	GRAPHQLSERVICE_EXPORT void add_int(int value);
+	GRAPHQLSERVICE_EXPORT void add_float(double value);
+
+	GRAPHQLSERVICE_EXPORT void add_error(schema_error&& error);
+};
+
+using AwaitableVisitor = internal::Awaitable<std::shared_ptr<ResolverVisitor>>;
+
 // Pass a common bundle of parameters to all of the generated Object::getField accessors in a
 // SelectionSet
 struct [[nodiscard("unnecessary construction")]] SelectionSetParams
@@ -515,19 +667,25 @@ using FragmentMap = internal::string_view_map<Fragment>;
 // a single field.
 struct [[nodiscard("unnecessary construction")]] ResolverParams : SelectionSetParams
 {
+	// These values are different for each resolver, but they may be shared between elements in a
+	// list field.
+	struct FieldData : std::enable_shared_from_this<FieldData>
+	{
+		const peg::ast_node& field;
+		std::string fieldName;
+		response::Value arguments { response::Type::Map };
+		Directives fieldDirectives;
+		const peg::ast_node* selection;
+	};
+
 	GRAPHQLSERVICE_EXPORT explicit ResolverParams(const SelectionSetParams& selectionSetParams,
-		const peg::ast_node& field, std::string&& fieldName, response::Value arguments,
-		Directives fieldDirectives, const peg::ast_node* selection, const FragmentMap& fragments,
-		const response::Value& variables);
+		std::shared_ptr<const FieldData>&& fieldData, AwaitableVisitor&& visitor,
+		const FragmentMap& fragments, const response::Value& variables);
 
 	[[nodiscard("unnecessary call")]] GRAPHQLSERVICE_EXPORT schema_location getLocation() const;
 
-	// These values are different for each resolver.
-	const peg::ast_node& field;
-	std::string fieldName;
-	response::Value arguments { response::Type::Map };
-	Directives fieldDirectives;
-	const peg::ast_node* selection;
+	std::shared_ptr<const FieldData> fieldData;
+	AwaitableVisitor visitor;
 
 	// These values remain unchanged for the entire operation, but they're passed to each of the
 	// resolvers recursively through ResolverParams.
@@ -543,7 +701,15 @@ struct [[nodiscard("unnecessary construction")]] ResolverResult
 	std::list<schema_error> errors {};
 };
 
-using AwaitableResolver = internal::Awaitable<ResolverResult>;
+// Construct a ResolverVisitor that fills in a ResolverResult by default.
+GRAPHQLSERVICE_EXPORT std::shared_ptr<ResolverVisitor> makeResolverVisitor(
+	ResolverResult& result) noexcept;
+
+// Await a previously created instance of ResolverVisitor.
+GRAPHQLSERVICE_EXPORT AwaitableVisitor awaitResolverVisitor(
+	std::shared_ptr<ResolverVisitor> visitor) noexcept;
+
+using AwaitableResolver = internal::Awaitable<void>;
 using Resolver = std::function<AwaitableResolver(ResolverParams&&)>;
 using ResolverMap = internal::string_view_map<Resolver>;
 
@@ -824,7 +990,8 @@ public:
 
 	[[nodiscard("unnecessary call")]] GRAPHQLSERVICE_EXPORT AwaitableResolver resolve(
 		const SelectionSetParams& selectionSetParams, const peg::ast_node& selection,
-		const FragmentMap& fragments, const response::Value& variables) const;
+		AwaitableVisitor&& resolverVisitor, const FragmentMap& fragments,
+		const response::Value& variables) const;
 
 	[[nodiscard("unnecessary call")]] GRAPHQLSERVICE_EXPORT bool matchesType(
 		std::string_view typeName) const;
@@ -983,24 +1150,28 @@ struct ModifiedResult
 		auto params = std::move(paramsArg);
 
 		co_await params.launch;
+		params.visitor = awaitResolverVisitor(co_await params.visitor);
 
-		auto awaitedResult = co_await Result<Object>::convert(
-			std::static_pointer_cast<const Object>(co_await result),
+		co_await Result<Object>::convert(std::static_pointer_cast<const Object>(co_await result),
 			std::move(params));
-
-		co_return std::move(awaitedResult);
 	}
 
 	// Peel off the none modifier. If it's included, it should always be last in the list.
 	template <TypeModifier Modifier = TypeModifier::None, TypeModifier... Other>
 	[[nodiscard("unnecessary conversion")]] static AwaitableResolver convert(
-		typename ResultTraits<Type>::future_type result, ResolverParams&& params)
+		typename ResultTraits<Type>::future_type result, ResolverParams&& paramsArg)
 		requires NoneScalarOrObjectType<Type, Modifier>
 	{
 		static_assert(sizeof...(Other) == 0, "None modifier should always be last");
 
+		// Move the paramsArg into a local variable before the first suspension point.
+		auto params = std::move(paramsArg);
+
+		co_await params.launch;
+		params.visitor = awaitResolverVisitor(co_await params.visitor);
+
 		// Just call through to the partial specialization without the modifier.
-		return Result<Type>::convert(std::move(result), std::move(params));
+		co_await Result<Type>::convert(std::move(result), std::move(params));
 	}
 
 	// Peel off final nullable modifiers for std::shared_ptr of Object and subclasses of Object.
@@ -1015,17 +1186,17 @@ struct ModifiedResult
 
 		co_await params.launch;
 
+		auto visitor = co_await params.visitor;
 		auto awaitedResult = co_await std::move(result);
 
 		if (!awaitedResult)
 		{
-			co_return ResolverResult {};
+			visitor->add_null();
+			co_return;
 		}
 
-		auto modifiedResult =
-			co_await ModifiedResult::convert<Other...>(std::move(awaitedResult), std::move(params));
-
-		co_return modifiedResult;
+		params.visitor = awaitResolverVisitor(std::move(visitor));
+		co_await ModifiedResult::convert<Other...>(std::move(awaitedResult), std::move(params));
 	}
 
 	// Peel off nullable modifiers for anything else, which should all be std::optional.
@@ -1039,6 +1210,13 @@ struct ModifiedResult
 						  typename ResultTraits<Type, Modifier, Other...>::type>,
 			"this is the optional version");
 
+		// Move the paramsArg into a local variable before the first suspension point.
+		auto params = std::move(paramsArg);
+
+		co_await params.launch;
+
+		auto visitor = co_await params.visitor;
+
 		if constexpr (!ObjectBaseType<Type>)
 		{
 			auto value = result.get_value();
@@ -1046,27 +1224,21 @@ struct ModifiedResult
 			if (value)
 			{
 				ModifiedResult::validateScalar<Modifier, Other...>(*value);
-				co_return ResolverResult { response::Value {
-					std::shared_ptr { std::move(value) } } };
+				visitor->add_value(std::move(value));
+				co_return;
 			}
 		}
-
-		// Move the paramsArg into a local variable before the first suspension point.
-		auto params = std::move(paramsArg);
-
-		co_await params.launch;
 
 		auto awaitedResult = co_await std::move(result);
 
 		if (!awaitedResult)
 		{
-			co_return ResolverResult {};
+			visitor->add_null();
+			co_return;
 		}
 
-		auto modifiedResult = co_await ModifiedResult::convert<Other...>(std::move(*awaitedResult),
-			std::move(params));
-
-		co_return modifiedResult;
+		params.visitor = awaitResolverVisitor(std::move(visitor));
+		co_await ModifiedResult::convert<Other...>(std::move(*awaitedResult), std::move(params));
 	}
 
 	// Peel off list modifiers.
@@ -1076,6 +1248,13 @@ struct ModifiedResult
 		ResolverParams&& paramsArg)
 		requires ListModifier<Modifier>
 	{
+		// Move the paramsArg into a local variable before the first suspension point.
+		auto params = std::move(paramsArg);
+
+		co_await params.launch;
+
+		auto visitor = co_await params.visitor;
+
 		if constexpr (!ObjectBaseType<Type>)
 		{
 			auto value = result.get_value();
@@ -1083,22 +1262,21 @@ struct ModifiedResult
 			if (value)
 			{
 				ModifiedResult::validateScalar<Modifier, Other...>(*value);
-				co_return ResolverResult { response::Value {
-					std::shared_ptr { std::move(value) } } };
+				visitor->add_value(std::move(value));
+				co_return;
 			}
 		}
 
-		// Move the paramsArg into a local variable before the first suspension point.
-		auto params = std::move(paramsArg);
+		co_await params.launch;
+		params.visitor = awaitResolverVisitor(visitor);
 
 		std::vector<AwaitableResolver> children;
 		const auto parentPath = params.errorPath;
-
-		co_await params.launch;
-
 		auto awaitedResult = co_await std::move(result);
 
 		children.reserve(awaitedResult.size());
+		visitor->start_array();
+		visitor->reserve(awaitedResult.size());
 		params.errorPath = std::make_optional(
 			field_path { parentPath ? std::make_optional(std::cref(*parentPath)) : std::nullopt,
 				path_segment { std::size_t { 0 } } });
@@ -1113,8 +1291,11 @@ struct ModifiedResult
 			// Copy the values from the std::vector<> rather than moving them.
 			for (typename vector_type::value_type entry : awaitedResult)
 			{
-				children.push_back(
-					ModifiedResult::convert<Other...>(std::move(entry), ResolverParams(params)));
+				children.push_back(ModifiedResult::convert<Other...>(std::move(entry),
+					ResolverParams(params,
+						params.field,
+						std::string { params.fieldName },
+						response::Value { params.arguments }, )));
 				++std::get<std::size_t>(params.errorPath->segment);
 			}
 		}
@@ -1128,9 +1309,6 @@ struct ModifiedResult
 			}
 		}
 
-		ResolverResult document { response::Value { response::Type::List } };
-
-		document.data.reserve(children.size());
 		std::get<std::size_t>(params.errorPath->segment) = 0;
 
 		for (auto& child : children)
@@ -1139,22 +1317,15 @@ struct ModifiedResult
 			{
 				co_await params.launch;
 
-				auto value = co_await std::move(child);
-
-				document.data.emplace_back(std::move(value.data));
-
-				if (!value.errors.empty())
-				{
-					document.errors.splice(document.errors.end(), value.errors);
-				}
+				co_await std::move(child);
 			}
 			catch (schema_exception& scx)
 			{
 				auto errors = scx.getStructuredErrors();
 
-				if (!errors.empty())
+				for (auto& error : error)
 				{
-					document.errors.splice(document.errors.end(), errors);
+					params.visitor.add_error(std::move(error));
 				}
 			}
 			catch (const std::exception& ex)
@@ -1163,7 +1334,7 @@ struct ModifiedResult
 					params.fieldName,
 					ex.what());
 
-				document.errors.emplace_back(schema_error { std::move(message),
+				params.visitor.add_error(schema_error { std::move(message),
 					params.getLocation(),
 					buildErrorPath(params.errorPath) });
 			}
@@ -1171,7 +1342,7 @@ struct ModifiedResult
 			++std::get<std::size_t>(params.errorPath->segment);
 		}
 
-		co_return document;
+		visitor->end_array();
 	}
 
 	// Peel off the none modifier. If it's included, it should always be last in the list.
@@ -1213,53 +1384,49 @@ struct ModifiedResult
 	}
 
 	using ResolverCallback =
-		std::function<response::Value(typename ResultTraits<Type>::type, const ResolverParams&)>;
+		std::function<AwaitableResolver(typename ResultTraits<Type>::type, ResolverParams&&)>;
 
 	[[nodiscard("unnecessary call")]] static AwaitableResolver resolve(
 		typename ResultTraits<Type>::future_type result, ResolverParams&& paramsArg,
-		ResolverCallback&& resolver)
+		ResolverCallback&& resolverArg)
 	{
 		static_assert(!ObjectBaseType<Type>, "ModfiedResult<Object> needs special handling");
 
+		auto params = std::move(paramsArg);
+		auto resolver = std::move(resolverArg);
+		auto visitor = co_await params.visitor;
 		auto value = result.get_value();
 
 		if (value)
 		{
 			Result<Type>::validateScalar(*value);
-			co_return ResolverResult { response::Value { std::shared_ptr { std::move(value) } } };
+			visitor->add_value(std::move(value));
+			co_return;
 		}
-
-		auto pendingResolver = std::move(resolver);
-		ResolverResult document;
-
-		// Move the paramsArg into a local variable before the first suspension point.
-		auto params = std::move(paramsArg);
 
 		try
 		{
 			co_await params.launch;
-			document.data = pendingResolver(co_await result, params);
+			params.visitor = awaitResolverVisitor(visitor);
+			resolver(co_await result, params);
 		}
 		catch (schema_exception& scx)
 		{
-			auto errors = scx.getStructuredErrors();
-
-			if (!errors.empty())
+			for (auto& error : scx.getStructuredErrors())
 			{
-				document.errors.splice(document.errors.end(), errors);
+				visitor->add_error(std::move(error));
 			}
 		}
 		catch (const std::exception& ex)
 		{
-			auto message =
-				std::format("Field name: {} unknown error: {}", params.fieldName, ex.what());
+			auto message = std::format("Field name: {} unknown error: {}",
+				params.fieldData->fieldName,
+				ex.what());
 
-			document.errors.emplace_back(schema_error { std::move(message),
+			visitor->add_error(schema_error { std::move(message),
 				params.getLocation(),
 				buildErrorPath(params.errorPath) });
 		}
-
-		co_return document;
 	}
 };
 

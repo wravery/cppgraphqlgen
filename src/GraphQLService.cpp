@@ -11,6 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <iostream>
+#include <stack>
 
 using namespace std::literals;
 
@@ -244,7 +245,7 @@ void await_worker_queue::resumePending()
 // Default to immediate synchronous execution.
 await_async::await_async()
 	: _pimpl { std::static_pointer_cast<const Concept>(
-		  std::make_shared<Model<std::suspend_never>>(std::make_shared<std::suspend_never>())) }
+		std::make_shared<Model<std::suspend_never>>(std::make_shared<std::suspend_never>())) }
 {
 }
 
@@ -252,9 +253,9 @@ await_async::await_async()
 await_async::await_async(std::launch launch)
 	: _pimpl { ((launch & std::launch::async) == std::launch::async)
 			? std::static_pointer_cast<const Concept>(std::make_shared<Model<await_worker_thread>>(
-				  std::make_shared<await_worker_thread>()))
+				std::make_shared<await_worker_thread>()))
 			: std::static_pointer_cast<const Concept>(std::make_shared<Model<std::suspend_never>>(
-				  std::make_shared<std::suspend_never>())) }
+				std::make_shared<std::suspend_never>())) }
 {
 }
 
@@ -271,6 +272,81 @@ void await_async::await_suspend(std::coroutine_handle<> h) const
 void await_async::await_resume() const
 {
 	_pimpl->await_resume();
+}
+
+void ResolverVisitor::add_value(std::shared_ptr<const response::Value>&& value)
+{
+	_concept->add_value(std::move(value));
+}
+
+void ResolverVisitor::reserve(size_t count)
+{
+	_concept->reserve(count);
+}
+
+void ResolverVisitor::start_object()
+{
+	_concept->start_object();
+}
+
+void ResolverVisitor::add_member(std::string&& key)
+{
+	_concept->add_member(std::move(key));
+}
+
+void ResolverVisitor::end_object()
+{
+	_concept->end_object();
+}
+
+void ResolverVisitor::start_array()
+{
+	_concept->start_array();
+}
+
+void ResolverVisitor::end_arrary()
+{
+	_concept->end_arrary();
+}
+
+void ResolverVisitor::add_null()
+{
+	_concept->add_null();
+}
+
+void ResolverVisitor::add_string(std::string&& value)
+{
+	_concept->add_string(std::move(value));
+}
+
+void ResolverVisitor::add_enum(std::string&& value)
+{
+	_concept->add_enum(std::move(value));
+}
+
+void ResolverVisitor::add_id(response::IdType&& value)
+{
+	_concept->add_id(std::move(value));
+}
+
+void ResolverVisitor::add_bool(bool value)
+{
+	_concept->add_bool(value);
+}
+
+void ResolverVisitor::add_int(int value)
+{
+	_concept->add_int(value);
+}
+
+void ResolverVisitor::add_float(double value)
+{
+	_concept->add_float(value);
+}
+
+void ResolverVisitor::add_error(schema_error&& error)
+{
+	_concept->add_error(std::move(error));
 }
 
 FieldParams::FieldParams(SelectionSetParams&& selectionSetParams, Directives directives)
@@ -599,15 +675,11 @@ const Directives& Fragment::getDirectives() const
 }
 
 ResolverParams::ResolverParams(const SelectionSetParams& selectionSetParams,
-	const peg::ast_node& field, std::string&& fieldName, response::Value arguments,
-	Directives fieldDirectives, const peg::ast_node* selection, const FragmentMap& fragments,
-	const response::Value& variables)
+	std::shared_ptr<const FieldData>&& fieldData, AwaitableVisitor&& visitor,
+	const FragmentMap& fragments, const response::Value& variables)
 	: SelectionSetParams(selectionSetParams)
-	, field(field)
-	, fieldName(std::move(fieldName))
-	, arguments(std::move(arguments))
-	, fieldDirectives(std::move(fieldDirectives))
-	, selection(selection)
+	, fieldData { std::move(fieldData) }
+	, visitor { std::move(visitor) }
 	, fragments(fragments)
 	, variables(variables)
 {
@@ -615,7 +687,7 @@ ResolverParams::ResolverParams(const SelectionSetParams& selectionSetParams,
 
 schema_location ResolverParams::getLocation() const
 {
-	auto position = field.begin();
+	auto position = fieldData->field.begin();
 
 	return { position.line, position.column };
 }
@@ -684,10 +756,11 @@ response::IdType Argument<response::IdType>::convert(const response::Value& valu
 void blockSubFields(const ResolverParams& params)
 {
 	// https://spec.graphql.org/October2021/#sec-Leaf-Field-Selections
-	if (params.selection != nullptr)
+	if (params.fieldData->selection != nullptr)
 	{
-		auto position = params.selection->begin();
-		auto error = std::format("Field may not have sub-fields name: {}", params.fieldName);
+		auto position = params.fieldData->selection->begin();
+		auto error =
+			std::format("Field may not have sub-fields name: {}", params.fieldData->fieldName);
 
 		throw schema_exception { { schema_error { std::move(error),
 			{ position.line, position.column },
@@ -702,8 +775,9 @@ AwaitableResolver Result<int>::convert(AwaitableScalar<int> result, ResolverPara
 
 	return ModifiedResult<int>::resolve(std::move(result),
 		std::move(params),
-		[](int&& value, const ResolverParams&) {
-			return response::Value(value);
+		[](int&& value, ResolverParams&& params) -> AwaitableResolver {
+			const auto visitor = co_await params.visitor;
+			visitor->add_int(value);
 		});
 }
 
@@ -714,8 +788,9 @@ AwaitableResolver Result<double>::convert(AwaitableScalar<double> result, Resolv
 
 	return ModifiedResult<double>::resolve(std::move(result),
 		std::move(params),
-		[](double&& value, const ResolverParams&) {
-			return response::Value(value);
+		[](double&& value, ResolverParams&& params) -> AwaitableResolver {
+			const auto visitor = co_await params.visitor;
+			visitor->add_float(value);
 		});
 }
 
@@ -727,8 +802,9 @@ AwaitableResolver Result<std::string>::convert(
 
 	return ModifiedResult<std::string>::resolve(std::move(result),
 		std::move(params),
-		[](std::string&& value, const ResolverParams&) {
-			return response::Value(std::move(value));
+		[](std::string&& value, ResolverParams&& params) -> AwaitableResolver {
+			const auto visitor = co_await params.visitor;
+			visitor->add_string(std::move(value));
 		});
 }
 
@@ -739,8 +815,9 @@ AwaitableResolver Result<bool>::convert(AwaitableScalar<bool> result, ResolverPa
 
 	return ModifiedResult<bool>::resolve(std::move(result),
 		std::move(params),
-		[](bool&& value, const ResolverParams&) {
-			return response::Value(value);
+		[](bool&& value, ResolverParams&& params) -> AwaitableResolver {
+			const auto visitor = co_await params.visitor;
+			visitor->add_bool(value);
 		});
 }
 
@@ -752,8 +829,9 @@ AwaitableResolver Result<response::Value>::convert(
 
 	return ModifiedResult<response::Value>::resolve(std::move(result),
 		std::move(params),
-		[](response::Value&& value, const ResolverParams&) {
-			return response::Value(std::move(value));
+		[](response::Value&& value, ResolverParams&& params) -> AwaitableResolver {
+			const auto visitor = co_await params.visitor;
+			visitor->add_value(std::make_shared<const response::Value>(std::move(value)));
 		});
 }
 
@@ -765,18 +843,20 @@ AwaitableResolver Result<response::IdType>::convert(
 
 	return ModifiedResult<response::IdType>::resolve(std::move(result),
 		std::move(params),
-		[](response::IdType&& value, const ResolverParams&) {
-			return response::Value(std::move(value));
+		[](response::IdType&& value, ResolverParams&& params) -> AwaitableResolver {
+			const auto visitor = co_await params.visitor;
+			visitor->add_id(std::move(value));
 		});
 }
 
 void requireSubFields(const ResolverParams& params)
 {
 	// https://spec.graphql.org/October2021/#sec-Leaf-Field-Selections
-	if (params.selection == nullptr)
+	if (params.fieldData->selection == nullptr)
 	{
-		auto position = params.field.begin();
-		auto error = std::format("Field must have sub-fields name: {}", params.fieldName);
+		auto position = params.fieldData->field.begin();
+		auto error =
+			std::format("Field must have sub-fields name: {}", params.fieldData->fieldName);
 
 		throw schema_exception { { schema_error { std::move(error),
 			{ position.line, position.column },
@@ -795,19 +875,24 @@ AwaitableResolver Result<Object>::convert(
 
 	co_await params.launch;
 
+	auto visitor = co_await params.visitor;
 	auto awaitedResult = co_await std::move(result);
 
 	if (!awaitedResult)
 	{
-		co_return ResolverResult {};
+		visitor->add_null();
+		co_return;
 	}
 
-	auto document = co_await awaitedResult->resolve(params,
-		*params.selection,
+	visitor->start_object();
+
+	co_await awaitedResult->resolve(params,
+		*params.fieldData->selection,
+		awaitResolverVisitor(visitor),
 		params.fragments,
 		params.variables);
 
-	co_return std::move(document);
+	visitor->end_object();
 }
 
 template <>
@@ -861,36 +946,40 @@ void Result<response::Value>::validateScalar(const response::Value&)
 	// Any response::Value is valid for a custom scalar type.
 }
 
+std::shared_ptr<ResolverVisitor> makeResolverVisitor(ResolverResult& result) noexcept
+{
+	return std::make_shared<ResolverVisitor>(std::make_unique<ResolverResultVisitor>(result));
+}
+
+// Await a previously created instance of ResolverVisitor.
+AwaitableVisitor awaitResolverVisitor(std::shared_ptr<ResolverVisitor> visitor) noexcept
+{
+	co_return visitor;
+}
+
 // SelectionVisitor visits the AST and resolves a field or fragment, unless it's skipped by
 // a directive or type condition.
 class SelectionVisitor
 {
 public:
 	explicit SelectionVisitor(const SelectionSetParams& selectionSetParams,
-		const FragmentMap& fragments, const response::Value& variables, const TypeNames& typeNames,
-		const ResolverMap& resolvers, std::size_t count);
+		std::shared_ptr<ResolverVisitor> resolverVisitor, const FragmentMap& fragments,
+		const response::Value& variables, const TypeNames& typeNames, const ResolverMap& resolvers,
+		std::size_t count);
 
-	void visit(const peg::ast_node& selection);
-
-	struct VisitorValue
-	{
-		std::string_view name;
-		std::optional<schema_location> location;
-		AwaitableResolver result;
-	};
-
-	std::vector<VisitorValue> getValues();
+	AwaitableResolver visit(const peg::ast_node& selection);
 
 private:
-	void visitField(const peg::ast_node& field);
-	void visitFragmentSpread(const peg::ast_node& fragmentSpread);
-	void visitInlineFragment(const peg::ast_node& inlineFragment);
+	AwaitableResolver visitField(const peg::ast_node& field);
+	AwaitableResolver visitFragmentSpread(const peg::ast_node& fragmentSpread);
+	AwaitableResolver visitInlineFragment(const peg::ast_node& inlineFragment);
 
 	const ResolverContext _resolverContext;
 	const std::shared_ptr<RequestState>& _state;
 	const Directives& _operationDirectives;
 	const std::optional<std::reference_wrapper<const field_path>> _path;
 	const await_async _launch;
+	const std::shared_ptr<ResolverVisitor> _resolverVisitor;
 	const FragmentMap& _fragments;
 	const response::Value& _variables;
 	const TypeNames& _typeNames;
@@ -902,14 +991,14 @@ private:
 	std::shared_ptr<FragmentSpreadDirectiveStack> _fragmentSpreadDirectives;
 	std::shared_ptr<FragmentSpreadDirectiveStack> _inlineFragmentDirectives;
 	internal::string_view_set _names;
-	std::vector<VisitorValue> _values;
 };
 
 const Directives SelectionVisitor::s_emptyFragmentDefinitionDirectives {};
 
 SelectionVisitor::SelectionVisitor(const SelectionSetParams& selectionSetParams,
-	const FragmentMap& fragments, const response::Value& variables, const TypeNames& typeNames,
-	const ResolverMap& resolvers, std::size_t count)
+	std::shared_ptr<ResolverVisitor> resolverVisitor, const FragmentMap& fragments,
+	const response::Value& variables, const TypeNames& typeNames, const ResolverMap& resolvers,
+	std::size_t count)
 	: _resolverContext(selectionSetParams.resolverContext)
 	, _state(selectionSetParams.state)
 	, _operationDirectives(selectionSetParams.operationDirectives)
@@ -917,6 +1006,7 @@ SelectionVisitor::SelectionVisitor(const SelectionSetParams& selectionSetParams,
 			  ? std::make_optional(std::cref(*selectionSetParams.errorPath))
 			  : std::nullopt)
 	, _launch(selectionSetParams.launch)
+	, _resolverVisitor { std::move(resolverVisitor) }
 	, _fragments(fragments)
 	, _variables(variables)
 	, _typeNames(typeNames)
@@ -933,33 +1023,26 @@ SelectionVisitor::SelectionVisitor(const SelectionSetParams& selectionSetParams,
 	// directives. The outer fragment directives are still there in the FragmentSpreadDirectiveStack
 	// if the field accessors want to inspect them.
 	_names.reserve(count);
-	_values.reserve(count);
+	_resolverVisitor->reserve(count);
 }
 
-std::vector<SelectionVisitor::VisitorValue> SelectionVisitor::getValues()
-{
-	auto values = std::move(_values);
-
-	return values;
-}
-
-void SelectionVisitor::visit(const peg::ast_node& selection)
+AwaitableResolver SelectionVisitor::visit(const peg::ast_node& selection)
 {
 	if (selection.is_type<peg::field>())
 	{
-		visitField(selection);
+		co_await visitField(selection);
 	}
 	else if (selection.is_type<peg::fragment_spread>())
 	{
-		visitFragmentSpread(selection);
+		co_await visitFragmentSpread(selection);
 	}
 	else if (selection.is_type<peg::inline_fragment>())
 	{
-		visitInlineFragment(selection);
+		co_await visitInlineFragment(selection);
 	}
 }
 
-void SelectionVisitor::visitField(const peg::ast_node& field)
+AwaitableResolver SelectionVisitor::visitField(const peg::ast_node& field)
 {
 	std::string_view name;
 
@@ -983,24 +1066,21 @@ void SelectionVisitor::visitField(const peg::ast_node& field)
 		// Skip resolving fields which map to the same response name as a field we've already
 		// resolved. Validation should handle merging multiple references to the same field or
 		// to compatible fields.
-		return;
+		co_return;
 	}
 
 	const auto itrResolver = _resolvers.find(name);
 
 	if (itrResolver == _resolvers.end())
 	{
-		std::promise<ResolverResult> promise;
 		auto position = field.begin();
 		auto error = std::format("Unknown field name: {}", name);
 
-		promise.set_exception(
-			std::make_exception_ptr(schema_exception { { schema_error { std::move(error),
-				{ position.line, position.column },
-				buildErrorPath(_path ? std::make_optional(_path->get()) : std::nullopt) } } }));
+		_resolverVisitor->add_error(schema_error { std::move(error),
+			{ position.line, position.column },
+			buildErrorPath(_path ? std::make_optional(_path->get()) : std::nullopt) });
 
-		_values.push_back({ alias, std::nullopt, promise.get_future() });
-		return;
+		co_return;
 	}
 
 	DirectiveVisitor directiveVisitor(_variables);
@@ -1011,7 +1091,7 @@ void SelectionVisitor::visitField(const peg::ast_node& field)
 
 	if (directiveVisitor.shouldSkip())
 	{
-		return;
+		co_return;
 	}
 
 	response::Value arguments(response::Type::Map);
@@ -1045,23 +1125,23 @@ void SelectionVisitor::visitField(const peg::ast_node& field)
 	};
 	const auto position = field.begin();
 
+	_resolverVisitor->add_member(std::string { alias });
+	_resolverVisitor->add_location(schema_location { position.line, position.column });
+
 	try
 	{
-		auto result = itrResolver->second(ResolverParams(selectionSetParams,
-			field,
-			std::string(alias),
-			std::move(arguments),
-			directiveVisitor.getDirectives(),
-			selection,
+		co_await itrResolver->second(ResolverParams(selectionSetParams,
+			std::make_shared<ResolverParams::FieldData>(field,
+				std::string(alias),
+				std::move(arguments),
+				directiveVisitor.getDirectives(),
+				selection),
+			awaitResolverVisitor(_resolverVisitor),
 			_fragments,
 			_variables));
-		auto location = std::make_optional(schema_location { position.line, position.column });
-
-		_values.push_back({ alias, std::move(location), std::move(result) });
 	}
 	catch (schema_exception& scx)
 	{
-		std::promise<ResolverResult> promise;
 		auto messages = scx.getStructuredErrors();
 
 		for (auto& message : messages)
@@ -1075,27 +1155,21 @@ void SelectionVisitor::visitField(const peg::ast_node& field)
 			{
 				message.path = buildErrorPath(selectionSetParams.errorPath);
 			}
+
+			_resolverVisitor->add_error(std::move(message));
 		}
-
-		promise.set_exception(std::make_exception_ptr(schema_exception { std::move(messages) }));
-
-		_values.push_back({ alias, std::nullopt, promise.get_future() });
 	}
 	catch (const std::exception& ex)
 	{
-		std::promise<ResolverResult> promise;
 		auto message = std::format("Field error name: {} unknown error: {}", alias, ex.what());
 
-		promise.set_exception(
-			std::make_exception_ptr(schema_exception { { schema_error { std::move(message),
-				{ position.line, position.column },
-				buildErrorPath(selectionSetParams.errorPath) } } }));
-
-		_values.push_back({ alias, std::nullopt, promise.get_future() });
+		_resolverVisitor->add_error(schema_error { std::move(message),
+			{ position.line, position.column },
+			buildErrorPath(selectionSetParams.errorPath) });
 	}
 }
 
-void SelectionVisitor::visitFragmentSpread(const peg::ast_node& fragmentSpread)
+AwaitableResolver SelectionVisitor::visitFragmentSpread(const peg::ast_node& fragmentSpread)
 {
 	const auto name = fragmentSpread.children.front()->string_view();
 	auto itr = _fragments.find(name);
@@ -1125,7 +1199,7 @@ void SelectionVisitor::visitFragmentSpread(const peg::ast_node& fragmentSpread)
 
 	if (skip)
 	{
-		return;
+		co_return;
 	}
 
 	_fragmentDefinitionDirectives = std::make_shared<FragmentDefinitionDirectiveStack>(
@@ -1140,7 +1214,7 @@ void SelectionVisitor::visitFragmentSpread(const peg::ast_node& fragmentSpread)
 	if (count > 1)
 	{
 		_names.reserve(_names.capacity() + count - 1);
-		_values.reserve(_values.capacity() + count - 1);
+		_resolverVisitor->reserve(_names.capacity());
 	}
 
 	for (const auto& selection : itr->second.getSelection().children)
@@ -1152,7 +1226,7 @@ void SelectionVisitor::visitFragmentSpread(const peg::ast_node& fragmentSpread)
 	_fragmentDefinitionDirectives = _fragmentDefinitionDirectives->outer;
 }
 
-void SelectionVisitor::visitInlineFragment(const peg::ast_node& inlineFragment)
+AwaitableResolver SelectionVisitor::visitInlineFragment(const peg::ast_node& inlineFragment)
 {
 	DirectiveVisitor directiveVisitor(_variables);
 
@@ -1187,7 +1261,7 @@ void SelectionVisitor::visitInlineFragment(const peg::ast_node& inlineFragment)
 				if (count > 1)
 				{
 					_names.reserve(_names.capacity() + count - 1);
-					_values.reserve(_values.capacity() + count - 1);
+					_resolverVisitor->reserve(_names.capacity());
 				}
 
 				for (const auto& selection : child.children)
@@ -1207,10 +1281,11 @@ Object::Object(TypeNames&& typeNames, ResolverMap&& resolvers) noexcept
 }
 
 AwaitableResolver Object::resolve(const SelectionSetParams& selectionSetParams,
-	const peg::ast_node& selection, const FragmentMap& fragments,
-	const response::Value& variables) const
+	const peg::ast_node& selection, AwaitableVisitor&& resolverVisitor,
+	const FragmentMap& fragments, const response::Value& variables) const
 {
 	SelectionVisitor visitor(selectionSetParams,
+		co_await resolverVisitor,
 		fragments,
 		variables,
 		_typeNames,
@@ -1344,6 +1419,170 @@ void FragmentDefinitionVisitor::visit(const peg::ast_node& fragmentDefinition)
 		Fragment(fragmentDefinition, _variables));
 }
 
+class ResolverResultVisitor
+{
+public:
+	explicit ResolverResultVisitor(ResolverResult& result) noexcept;
+
+	void add_value(std::shared_ptr<const response::Value>&& value);
+	void reserve(size_t count);
+	void start_object();
+	void add_member(std::string&& key);
+	void end_object();
+	void start_array();
+	void end_arrary();
+	void add_null();
+	void add_string(std::string&& value);
+	void add_enum(std::string&& value);
+	void add_id(response::IdType&& value);
+	void add_bool(bool value);
+	void add_int(int value);
+	void add_float(double value);
+	void add_error(schema_error&& error);
+
+private:
+	void add_value(response::Value&& value);
+
+	std::mutex _mutex {};
+	ResolverResult& _result;
+	std::stack<response::Value> _values;
+	std::stack<std::string> _keys;
+};
+
+ResolverResultVisitor::ResolverResultVisitor(ResolverResult& result) noexcept
+	: _result { result }
+{
+}
+
+void ResolverResultVisitor::add_value(std::shared_ptr<const response::Value>&& value)
+{
+	const std::lock_guard lock { _mutex };
+
+	add_value(response::Value { std::move(value) });
+}
+
+void ResolverResultVisitor::reserve(size_t count)
+{
+	const std::lock_guard lock { _mutex };
+
+	_values.top().reserve(count);
+}
+
+void ResolverResultVisitor::start_object()
+{
+	const std::lock_guard lock { _mutex };
+
+	_values.push(response::Value { response::Type::Map });
+	_locations.push(std::nullopt);
+}
+
+void ResolverResultVisitor::add_member(std::string&& key)
+{
+	const std::lock_guard lock { _mutex };
+
+	_keys.push(std::move(key));
+}
+
+void ResolverResultVisitor::end_object()
+{
+	const std::lock_guard lock { _mutex };
+	auto value = std::move(_values.top());
+
+	_values.pop();
+	add_value(std::move(value));
+}
+
+void ResolverResultVisitor::start_array()
+{
+	const std::lock_guard lock { _mutex };
+
+	_values.push(response::Value { response::Type::List });
+	_locations.push(std::nullopt);
+}
+
+void ResolverResultVisitor::end_arrary()
+{
+	const std::lock_guard lock { _mutex };
+	auto value = std::move(_values.top());
+
+	_values.pop();
+	add_value(std::move(value));
+}
+
+void ResolverResultVisitor::add_null()
+{
+	add_value(response::Value {});
+}
+
+void ResolverResultVisitor::add_string(std::string&& value)
+{
+	add_value(response::Value { std::move(value) });
+}
+
+void ResolverResultVisitor::add_enum(std::string&& value)
+{
+	response::Value enumValue { response::Type::EnumValue };
+
+	enumValue.set<response::StringType>(std::move(value));
+	add_value(std::move(enumValue));
+}
+
+void ResolverResultVisitor::add_id(response::IdType&& value)
+{
+	add_value(response::Value { std::move(value) });
+}
+
+void ResolverResultVisitor::add_bool(bool value)
+{
+	add_value(response::Value { std::move(value) });
+}
+
+void ResolverResultVisitor::add_int(int value)
+{
+	add_value(response::Value { std::move(value) });
+}
+
+void ResolverResultVisitor::add_float(double value)
+{
+	add_value(response::Value { std::move(value) });
+}
+
+void ResolverResultVisitor::add_error(schema_error&& error)
+{
+	const std::lock_guard lock { _mutex };
+
+	_result.errors.push_back(std::move(error));
+}
+
+void ResolverResultVisitor::add_value(response::Value&& value)
+{
+	const std::lock_guard lock { _mutex };
+
+	if (_values.empty())
+	{
+		_result.data = std::move(value);
+		return;
+	}
+
+	switch (_values.top().type())
+	{
+		case response::Type::Map:
+			_values.top().emplace_back(std::move(_keys.top()), std::move(value));
+			_locations.pop();
+			_keys.pop();
+			break;
+
+		case response::Type::List:
+			_values.top().emplace_back(std::move(value));
+			_locations.pop();
+			break;
+
+		default:
+			throw std::logic_error("Invalid call to Value::emplace_back");
+			break;
+	}
+}
+
 // OperationDefinitionVisitor visits the AST and executes the one with the specified
 // operation name.
 class OperationDefinitionVisitor
@@ -1442,6 +1681,8 @@ void OperationDefinitionVisitor::visit(
 
 	_params->directives = std::move(operationDirectives);
 
+	ResolverResult result;
+	auto visitor = makeResolverVisitor(result);
 	const SelectionSetParams selectionSetParams {
 		_resolverContext,
 		_params->state,
@@ -1451,12 +1692,14 @@ void OperationDefinitionVisitor::visit(
 		std::shared_ptr<FragmentSpreadDirectiveStack> {},
 		std::nullopt,
 		_launch,
+		awaitResolverVisitor(std::move(visitor)),
 	};
 
-	_result = std::make_optional(itr->second->resolve(selectionSetParams,
+	itr->second->resolve(selectionSetParams,
 		*operationDefinition.children.back(),
 		_params->fragments,
-		_params->variables));
+		_params->variables);
+	_result = std::make_optional(AwaitableResolver { std::move(result) });
 }
 
 SubscriptionData::SubscriptionData(std::shared_ptr<OperationData> data, SubscriptionName&& field,
