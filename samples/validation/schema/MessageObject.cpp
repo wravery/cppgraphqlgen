@@ -55,7 +55,7 @@ service::AwaitableResolver Message::resolveBody(service::ResolverParams&& params
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getBody(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 
@@ -66,7 +66,7 @@ service::AwaitableResolver Message::resolveSender(service::ResolverParams&& para
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getSender(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 

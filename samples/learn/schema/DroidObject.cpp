@@ -60,7 +60,7 @@ service::AwaitableResolver Droid::resolveId(service::ResolverParams&& params) co
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getId(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 
@@ -71,7 +71,7 @@ service::AwaitableResolver Droid::resolveName(service::ResolverParams&& params) 
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getName(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 
@@ -82,7 +82,7 @@ service::AwaitableResolver Droid::resolveFriends(service::ResolverParams&& param
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getFriends(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 
@@ -93,7 +93,7 @@ service::AwaitableResolver Droid::resolveAppearsIn(service::ResolverParams&& par
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getAppearsIn(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 
@@ -104,7 +104,7 @@ service::AwaitableResolver Droid::resolvePrimaryFunction(service::ResolverParams
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getPrimaryFunction(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 

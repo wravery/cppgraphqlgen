@@ -74,10 +74,10 @@ void Query::endSelectionSet(const service::SelectionSetParams& params) const
 
 service::AwaitableResolver Query::resolveNode(service::ResolverParams&& params) const
 {
-	auto argId = service::ModifiedArgument<response::IdType>::require("id", params.arguments);
+	auto argId = service::ModifiedArgument<response::IdType>::require("id", params.fieldData->arguments);
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getNode(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argId));
 	resolverLock.unlock();
 
@@ -86,13 +86,13 @@ service::AwaitableResolver Query::resolveNode(service::ResolverParams&& params) 
 
 service::AwaitableResolver Query::resolveAppointments(service::ResolverParams&& params) const
 {
-	auto argFirst = service::ModifiedArgument<int>::require<service::TypeModifier::Nullable>("first", params.arguments);
-	auto argAfter = service::ModifiedArgument<response::Value>::require<service::TypeModifier::Nullable>("after", params.arguments);
-	auto argLast = service::ModifiedArgument<int>::require<service::TypeModifier::Nullable>("last", params.arguments);
-	auto argBefore = service::ModifiedArgument<response::Value>::require<service::TypeModifier::Nullable>("before", params.arguments);
+	auto argFirst = service::ModifiedArgument<int>::require<service::TypeModifier::Nullable>("first", params.fieldData->arguments);
+	auto argAfter = service::ModifiedArgument<response::Value>::require<service::TypeModifier::Nullable>("after", params.fieldData->arguments);
+	auto argLast = service::ModifiedArgument<int>::require<service::TypeModifier::Nullable>("last", params.fieldData->arguments);
+	auto argBefore = service::ModifiedArgument<response::Value>::require<service::TypeModifier::Nullable>("before", params.fieldData->arguments);
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getAppointments(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argFirst), std::move(argAfter), std::move(argLast), std::move(argBefore));
 	resolverLock.unlock();
 
@@ -101,13 +101,13 @@ service::AwaitableResolver Query::resolveAppointments(service::ResolverParams&& 
 
 service::AwaitableResolver Query::resolveTasks(service::ResolverParams&& params) const
 {
-	auto argFirst = service::ModifiedArgument<int>::require<service::TypeModifier::Nullable>("first", params.arguments);
-	auto argAfter = service::ModifiedArgument<response::Value>::require<service::TypeModifier::Nullable>("after", params.arguments);
-	auto argLast = service::ModifiedArgument<int>::require<service::TypeModifier::Nullable>("last", params.arguments);
-	auto argBefore = service::ModifiedArgument<response::Value>::require<service::TypeModifier::Nullable>("before", params.arguments);
+	auto argFirst = service::ModifiedArgument<int>::require<service::TypeModifier::Nullable>("first", params.fieldData->arguments);
+	auto argAfter = service::ModifiedArgument<response::Value>::require<service::TypeModifier::Nullable>("after", params.fieldData->arguments);
+	auto argLast = service::ModifiedArgument<int>::require<service::TypeModifier::Nullable>("last", params.fieldData->arguments);
+	auto argBefore = service::ModifiedArgument<response::Value>::require<service::TypeModifier::Nullable>("before", params.fieldData->arguments);
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getTasks(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argFirst), std::move(argAfter), std::move(argLast), std::move(argBefore));
 	resolverLock.unlock();
 
@@ -116,13 +116,13 @@ service::AwaitableResolver Query::resolveTasks(service::ResolverParams&& params)
 
 service::AwaitableResolver Query::resolveUnreadCounts(service::ResolverParams&& params) const
 {
-	auto argFirst = service::ModifiedArgument<int>::require<service::TypeModifier::Nullable>("first", params.arguments);
-	auto argAfter = service::ModifiedArgument<response::Value>::require<service::TypeModifier::Nullable>("after", params.arguments);
-	auto argLast = service::ModifiedArgument<int>::require<service::TypeModifier::Nullable>("last", params.arguments);
-	auto argBefore = service::ModifiedArgument<response::Value>::require<service::TypeModifier::Nullable>("before", params.arguments);
+	auto argFirst = service::ModifiedArgument<int>::require<service::TypeModifier::Nullable>("first", params.fieldData->arguments);
+	auto argAfter = service::ModifiedArgument<response::Value>::require<service::TypeModifier::Nullable>("after", params.fieldData->arguments);
+	auto argLast = service::ModifiedArgument<int>::require<service::TypeModifier::Nullable>("last", params.fieldData->arguments);
+	auto argBefore = service::ModifiedArgument<response::Value>::require<service::TypeModifier::Nullable>("before", params.fieldData->arguments);
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getUnreadCounts(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argFirst), std::move(argAfter), std::move(argLast), std::move(argBefore));
 	resolverLock.unlock();
 
@@ -150,13 +150,13 @@ service::AwaitableResolver Query::resolveAppointmentsById(service::ResolverParam
 		return values;
 	}();
 
-	auto pairIds = service::ModifiedArgument<response::IdType>::find<service::TypeModifier::List>("ids", params.arguments);
+	auto pairIds = service::ModifiedArgument<response::IdType>::find<service::TypeModifier::List>("ids", params.fieldData->arguments);
 	auto argIds = (pairIds.second
 		? std::move(pairIds.first)
 		: service::ModifiedArgument<response::IdType>::require<service::TypeModifier::List>("ids", defaultArguments));
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getAppointmentsById(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argIds));
 	resolverLock.unlock();
 
@@ -165,10 +165,10 @@ service::AwaitableResolver Query::resolveAppointmentsById(service::ResolverParam
 
 service::AwaitableResolver Query::resolveTasksById(service::ResolverParams&& params) const
 {
-	auto argIds = service::ModifiedArgument<response::IdType>::require<service::TypeModifier::List>("ids", params.arguments);
+	auto argIds = service::ModifiedArgument<response::IdType>::require<service::TypeModifier::List>("ids", params.fieldData->arguments);
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getTasksById(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argIds));
 	resolverLock.unlock();
 
@@ -177,10 +177,10 @@ service::AwaitableResolver Query::resolveTasksById(service::ResolverParams&& par
 
 service::AwaitableResolver Query::resolveUnreadCountsById(service::ResolverParams&& params) const
 {
-	auto argIds = service::ModifiedArgument<response::IdType>::require<service::TypeModifier::List>("ids", params.arguments);
+	auto argIds = service::ModifiedArgument<response::IdType>::require<service::TypeModifier::List>("ids", params.fieldData->arguments);
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getUnreadCountsById(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argIds));
 	resolverLock.unlock();
 
@@ -191,7 +191,7 @@ service::AwaitableResolver Query::resolveNested(service::ResolverParams&& params
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getNested(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 
@@ -202,7 +202,7 @@ service::AwaitableResolver Query::resolveUnimplemented(service::ResolverParams&&
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getUnimplemented(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 
@@ -213,7 +213,7 @@ service::AwaitableResolver Query::resolveExpensive(service::ResolverParams&& par
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getExpensive(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 
@@ -224,7 +224,7 @@ service::AwaitableResolver Query::resolveTestTaskState(service::ResolverParams&&
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getTestTaskState(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 
@@ -233,10 +233,10 @@ service::AwaitableResolver Query::resolveTestTaskState(service::ResolverParams&&
 
 service::AwaitableResolver Query::resolveAnyType(service::ResolverParams&& params) const
 {
-	auto argIds = service::ModifiedArgument<response::IdType>::require<service::TypeModifier::List>("ids", params.arguments);
+	auto argIds = service::ModifiedArgument<response::IdType>::require<service::TypeModifier::List>("ids", params.fieldData->arguments);
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getAnyType(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argIds));
 	resolverLock.unlock();
 
@@ -247,7 +247,7 @@ service::AwaitableResolver Query::resolveDefault(service::ResolverParams&& param
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getDefault(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 

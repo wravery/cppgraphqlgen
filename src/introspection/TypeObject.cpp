@@ -97,7 +97,7 @@ service::AwaitableResolver Type::resolveFields(service::ResolverParams&& params)
 		return values;
 	}();
 
-	auto pairIncludeDeprecated = service::ModifiedArgument<bool>::find<service::TypeModifier::Nullable>("includeDeprecated", params.arguments);
+	auto pairIncludeDeprecated = service::ModifiedArgument<bool>::find<service::TypeModifier::Nullable>("includeDeprecated", params.fieldData->arguments);
 	auto argIncludeDeprecated = (pairIncludeDeprecated.second
 		? std::move(pairIncludeDeprecated.first)
 		: service::ModifiedArgument<bool>::require<service::TypeModifier::Nullable>("includeDeprecated", defaultArguments));
@@ -139,7 +139,7 @@ service::AwaitableResolver Type::resolveEnumValues(service::ResolverParams&& par
 		return values;
 	}();
 
-	auto pairIncludeDeprecated = service::ModifiedArgument<bool>::find<service::TypeModifier::Nullable>("includeDeprecated", params.arguments);
+	auto pairIncludeDeprecated = service::ModifiedArgument<bool>::find<service::TypeModifier::Nullable>("includeDeprecated", params.fieldData->arguments);
 	auto argIncludeDeprecated = (pairIncludeDeprecated.second
 		? std::move(pairIncludeDeprecated.first)
 		: service::ModifiedArgument<bool>::require<service::TypeModifier::Nullable>("includeDeprecated", defaultArguments));

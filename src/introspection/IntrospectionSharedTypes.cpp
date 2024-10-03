@@ -48,13 +48,9 @@ template <>
 service::AwaitableResolver Result<introspection::TypeKind>::convert(service::AwaitableScalar<introspection::TypeKind> result, ResolverParams&& params)
 {
 	return ModifiedResult<introspection::TypeKind>::resolve(std::move(result), std::move(params),
-		[](introspection::TypeKind value, const ResolverParams&)
+		[](introspection::TypeKind value, const ResolverParams& params)
 		{
-			response::Value resolvedResult(response::Type::EnumValue);
-
-			resolvedResult.set<std::string>(std::string { s_namesTypeKind[static_cast<std::size_t>(value)] });
-
-			return resolvedResult;
+			params.resolverVisitor->add_enum(std::string { s_namesTypeKind[static_cast<std::size_t>(value)] });
 		});
 }
 
@@ -104,13 +100,9 @@ template <>
 service::AwaitableResolver Result<introspection::DirectiveLocation>::convert(service::AwaitableScalar<introspection::DirectiveLocation> result, ResolverParams&& params)
 {
 	return ModifiedResult<introspection::DirectiveLocation>::resolve(std::move(result), std::move(params),
-		[](introspection::DirectiveLocation value, const ResolverParams&)
+		[](introspection::DirectiveLocation value, const ResolverParams& params)
 		{
-			response::Value resolvedResult(response::Type::EnumValue);
-
-			resolvedResult.set<std::string>(std::string { s_namesDirectiveLocation[static_cast<std::size_t>(value)] });
-
-			return resolvedResult;
+			params.resolverVisitor->add_enum(std::string { s_namesDirectiveLocation[static_cast<std::size_t>(value)] });
 		});
 }
 

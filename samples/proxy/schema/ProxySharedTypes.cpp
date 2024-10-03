@@ -48,13 +48,9 @@ template <>
 service::AwaitableResolver Result<proxy::OperationType>::convert(service::AwaitableScalar<proxy::OperationType> result, ResolverParams&& params)
 {
 	return ModifiedResult<proxy::OperationType>::resolve(std::move(result), std::move(params),
-		[](proxy::OperationType value, const ResolverParams&)
+		[](proxy::OperationType value, const ResolverParams& params)
 		{
-			response::Value resolvedResult(response::Type::EnumValue);
-
-			resolvedResult.set<std::string>(std::string { s_namesOperationType[static_cast<std::size_t>(value)] });
-
-			return resolvedResult;
+			params.resolverVisitor->add_enum(std::string { s_namesOperationType[static_cast<std::size_t>(value)] });
 		});
 }
 

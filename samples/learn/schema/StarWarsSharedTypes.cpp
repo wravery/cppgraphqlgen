@@ -48,13 +48,9 @@ template <>
 service::AwaitableResolver Result<learn::Episode>::convert(service::AwaitableScalar<learn::Episode> result, ResolverParams&& params)
 {
 	return ModifiedResult<learn::Episode>::resolve(std::move(result), std::move(params),
-		[](learn::Episode value, const ResolverParams&)
+		[](learn::Episode value, const ResolverParams& params)
 		{
-			response::Value resolvedResult(response::Type::EnumValue);
-
-			resolvedResult.set<std::string>(std::string { s_namesEpisode[static_cast<std::size_t>(value)] });
-
-			return resolvedResult;
+			params.resolverVisitor->add_enum(std::string { s_namesEpisode[static_cast<std::size_t>(value)] });
 		});
 }
 

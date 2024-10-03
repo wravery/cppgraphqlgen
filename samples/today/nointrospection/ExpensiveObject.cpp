@@ -54,7 +54,7 @@ service::AwaitableResolver Expensive::resolveOrder(service::ResolverParams&& par
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getOrder(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 

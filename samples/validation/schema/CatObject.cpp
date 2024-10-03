@@ -59,7 +59,7 @@ service::AwaitableResolver Cat::resolveName(service::ResolverParams&& params) co
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getName(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 
@@ -70,7 +70,7 @@ service::AwaitableResolver Cat::resolveNickname(service::ResolverParams&& params
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getNickname(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 
@@ -79,10 +79,10 @@ service::AwaitableResolver Cat::resolveNickname(service::ResolverParams&& params
 
 service::AwaitableResolver Cat::resolveDoesKnowCommand(service::ResolverParams&& params) const
 {
-	auto argCatCommand = service::ModifiedArgument<CatCommand>::require("catCommand", params.arguments);
+	auto argCatCommand = service::ModifiedArgument<CatCommand>::require("catCommand", params.fieldData->arguments);
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getDoesKnowCommand(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argCatCommand));
 	resolverLock.unlock();
 
@@ -93,7 +93,7 @@ service::AwaitableResolver Cat::resolveMeowVolume(service::ResolverParams&& para
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getMeowVolume(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 

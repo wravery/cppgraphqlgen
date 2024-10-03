@@ -63,7 +63,7 @@ service::AwaitableResolver Dog::resolveName(service::ResolverParams&& params) co
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getName(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 
@@ -74,7 +74,7 @@ service::AwaitableResolver Dog::resolveNickname(service::ResolverParams&& params
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getNickname(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 
@@ -85,7 +85,7 @@ service::AwaitableResolver Dog::resolveBarkVolume(service::ResolverParams&& para
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getBarkVolume(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 
@@ -94,10 +94,10 @@ service::AwaitableResolver Dog::resolveBarkVolume(service::ResolverParams&& para
 
 service::AwaitableResolver Dog::resolveDoesKnowCommand(service::ResolverParams&& params) const
 {
-	auto argDogCommand = service::ModifiedArgument<DogCommand>::require("dogCommand", params.arguments);
+	auto argDogCommand = service::ModifiedArgument<DogCommand>::require("dogCommand", params.fieldData->arguments);
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getDoesKnowCommand(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argDogCommand));
 	resolverLock.unlock();
 
@@ -106,10 +106,10 @@ service::AwaitableResolver Dog::resolveDoesKnowCommand(service::ResolverParams&&
 
 service::AwaitableResolver Dog::resolveIsHousetrained(service::ResolverParams&& params) const
 {
-	auto argAtOtherHomes = service::ModifiedArgument<bool>::require<service::TypeModifier::Nullable>("atOtherHomes", params.arguments);
+	auto argAtOtherHomes = service::ModifiedArgument<bool>::require<service::TypeModifier::Nullable>("atOtherHomes", params.fieldData->arguments);
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getIsHousetrained(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argAtOtherHomes));
 	resolverLock.unlock();
 
@@ -120,7 +120,7 @@ service::AwaitableResolver Dog::resolveOwner(service::ResolverParams&& params) c
 {
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getOwner(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 

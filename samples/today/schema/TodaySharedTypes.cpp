@@ -48,13 +48,9 @@ template <>
 service::AwaitableResolver Result<today::TaskState>::convert(service::AwaitableScalar<today::TaskState> result, ResolverParams&& params)
 {
 	return ModifiedResult<today::TaskState>::resolve(std::move(result), std::move(params),
-		[](today::TaskState value, const ResolverParams&)
+		[](today::TaskState value, const ResolverParams& params)
 		{
-			response::Value resolvedResult(response::Type::EnumValue);
-
-			resolvedResult.set<std::string>(std::string { s_namesTaskState[static_cast<std::size_t>(value)] });
-
-			return resolvedResult;
+			params.resolverVisitor->add_enum(std::string { s_namesTaskState[static_cast<std::size_t>(value)] });
 		});
 }
 

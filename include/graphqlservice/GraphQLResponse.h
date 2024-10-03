@@ -387,7 +387,7 @@ private:
 		virtual void end_object() const = 0;
 
 		virtual void start_array() const = 0;
-		virtual void end_arrary() const = 0;
+		virtual void end_array() const = 0;
 
 		virtual void write_null() const = 0;
 		virtual void write_string(const std::string& value) const = 0;
@@ -424,9 +424,9 @@ private:
 			_pimpl->start_array();
 		}
 
-		void end_arrary() const final
+		void end_array() const final
 		{
-			_pimpl->end_arrary();
+			_pimpl->end_array();
 		}
 
 		void write_null() const final

@@ -57,10 +57,10 @@ void Query::endSelectionSet(const service::SelectionSetParams& params) const
 
 service::AwaitableResolver Query::resolveRelay(service::ResolverParams&& params) const
 {
-	auto argInput = service::ModifiedArgument<proxy::QueryInput>::require("input", params.arguments);
+	auto argInput = service::ModifiedArgument<proxy::QueryInput>::require("input", params.fieldData->arguments);
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getRelay(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argInput));
 	resolverLock.unlock();
 
@@ -79,7 +79,7 @@ service::AwaitableResolver Query::resolve_schema(service::ResolverParams&& param
 
 service::AwaitableResolver Query::resolve_type(service::ResolverParams&& params) const
 {
-	auto argName = service::ModifiedArgument<std::string>::require("name", params.arguments);
+	auto argName = service::ModifiedArgument<std::string>::require("name", params.fieldData->arguments);
 	const auto& baseType = _schema->LookupType(argName);
 	std::shared_ptr<introspection::object::Type> result { baseType ? std::make_shared<introspection::object::Type>(std::make_shared<introspection::Type>(baseType)) : nullptr };
 

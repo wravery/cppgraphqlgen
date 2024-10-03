@@ -53,11 +53,11 @@ void Mutation::endSelectionSet(const service::SelectionSetParams& params) const
 
 service::AwaitableResolver Mutation::resolveCreateReview(service::ResolverParams&& params) const
 {
-	auto argEp = service::ModifiedArgument<learn::Episode>::require("ep", params.arguments);
-	auto argReview = service::ModifiedArgument<learn::ReviewInput>::require("review", params.arguments);
+	auto argEp = service::ModifiedArgument<learn::Episode>::require("ep", params.fieldData->arguments);
+	auto argReview = service::ModifiedArgument<learn::ReviewInput>::require("review", params.fieldData->arguments);
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->applyCreateReview(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argEp), std::move(argReview));
 	resolverLock.unlock();
 

@@ -1477,7 +1477,7 @@ void Writer::write(Value response) const
 				write(std::move(entry));
 			}
 
-			_concept->end_arrary();
+			_concept->end_array();
 			break;
 		}
 

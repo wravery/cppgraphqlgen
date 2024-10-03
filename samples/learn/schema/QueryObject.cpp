@@ -61,10 +61,10 @@ void Query::endSelectionSet(const service::SelectionSetParams& params) const
 
 service::AwaitableResolver Query::resolveHero(service::ResolverParams&& params) const
 {
-	auto argEpisode = service::ModifiedArgument<learn::Episode>::require<service::TypeModifier::Nullable>("episode", params.arguments);
+	auto argEpisode = service::ModifiedArgument<learn::Episode>::require<service::TypeModifier::Nullable>("episode", params.fieldData->arguments);
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getHero(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argEpisode));
 	resolverLock.unlock();
 
@@ -73,10 +73,10 @@ service::AwaitableResolver Query::resolveHero(service::ResolverParams&& params) 
 
 service::AwaitableResolver Query::resolveHuman(service::ResolverParams&& params) const
 {
-	auto argId = service::ModifiedArgument<response::IdType>::require("id", params.arguments);
+	auto argId = service::ModifiedArgument<response::IdType>::require("id", params.fieldData->arguments);
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getHuman(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argId));
 	resolverLock.unlock();
 
@@ -85,10 +85,10 @@ service::AwaitableResolver Query::resolveHuman(service::ResolverParams&& params)
 
 service::AwaitableResolver Query::resolveDroid(service::ResolverParams&& params) const
 {
-	auto argId = service::ModifiedArgument<response::IdType>::require("id", params.arguments);
+	auto argId = service::ModifiedArgument<response::IdType>::require("id", params.fieldData->arguments);
 	std::unique_lock resolverLock(_resolverMutex);
 	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 	auto result = _pimpl->getDroid(service::FieldParams { std::move(selectionSetParams), std::move(directives) }, std::move(argId));
 	resolverLock.unlock();
 
@@ -107,7 +107,7 @@ service::AwaitableResolver Query::resolve_schema(service::ResolverParams&& param
 
 service::AwaitableResolver Query::resolve_type(service::ResolverParams&& params) const
 {
-	auto argName = service::ModifiedArgument<std::string>::require("name", params.arguments);
+	auto argName = service::ModifiedArgument<std::string>::require("name", params.fieldData->arguments);
 	const auto& baseType = _schema->LookupType(argName);
 	std::shared_ptr<introspection::object::Type> result { baseType ? std::make_shared<introspection::object::Type>(std::make_shared<introspection::Type>(baseType)) : nullptr };
 

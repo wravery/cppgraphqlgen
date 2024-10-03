@@ -44,7 +44,7 @@ public:
 		_writer.StartArray();
 	}
 
-	void end_arrary()
+	void end_array()
 	{
 		_writer.EndArray();
 	}

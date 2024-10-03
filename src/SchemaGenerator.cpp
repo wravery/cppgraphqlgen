@@ -1683,14 +1683,11 @@ service::AwaitableResolver Result<)cpp"
 				   << _loader.getSchemaNamespace() << R"cpp(::)cpp" << enumType.cppType
 				   << R"cpp(>::resolve(std::move(result), std::move(params),
 		[]()cpp" << _loader.getSchemaNamespace()
-				   << R"cpp(::)cpp" << enumType.cppType << R"cpp( value, const ResolverParams&)
+				   << R"cpp(::)cpp" << enumType.cppType
+				   << R"cpp( value, const ResolverParams& params)
 		{
-			response::Value resolvedResult(response::Type::EnumValue);
-
-			resolvedResult.set<std::string>(std::string { s_names)cpp"
+			params.resolverVisitor->add_enum(std::string { s_names)cpp"
 				   << enumType.cppType << R"cpp([static_cast<std::size_t>(value)] });
-
-			return resolvedResult;
 		});
 }
 
@@ -2492,8 +2489,7 @@ Operations::Operations()cpp";
 	)cpp";
 			}
 			sourceFile << R"cpp(}, )cpp"
-					   << (directive.isRepeatable ? R"cpp(true)cpp" : R"cpp(false)cpp")
-					   << R"cpp());
+					   << (directive.isRepeatable ? R"cpp(true)cpp" : R"cpp(false)cpp") << R"cpp());
 )cpp";
 		}
 	}
@@ -2822,7 +2818,7 @@ service::AwaitableResolver )cpp"
 			{
 				sourceFile << getArgumentDeclaration(argument,
 					"arg",
-					"params.arguments",
+					"params.fieldData->arguments",
 					"defaultArguments");
 			}
 		}
@@ -2834,7 +2830,7 @@ service::AwaitableResolver )cpp"
 		{
 			sourceFile
 				<< R"cpp(	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
-	auto directives = std::move(params.fieldDirectives);
+	auto directives = std::move(params.fieldData->fieldDirectives);
 )cpp";
 		}
 
@@ -2906,7 +2902,7 @@ service::AwaitableResolver )cpp"
 service::AwaitableResolver )cpp"
 			<< objectType.cppType << R"cpp(::resolve_type(service::ResolverParams&& params) const
 {
-	auto argName = service::ModifiedArgument<std::string>::require("name", params.arguments);
+	auto argName = service::ModifiedArgument<std::string>::require("name", params.fieldData->arguments);
 	const auto& baseType = _schema->LookupType(argName);
 	std::shared_ptr<)cpp"
 			<< SchemaLoader::getIntrospectionNamespace()

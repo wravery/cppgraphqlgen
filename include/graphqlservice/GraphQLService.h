@@ -272,14 +272,14 @@ private:
 
 		virtual void add_value(std::shared_ptr<const response::Value>&& value) = 0;
 
-		virtual void reserve(size_t count) = 0;
+		virtual void reserve(std::size_t count) = 0;
 
 		virtual void start_object() = 0;
 		virtual void add_member(std::string&& key) = 0;
 		virtual void end_object() = 0;
 
 		virtual void start_array() = 0;
-		virtual void end_arrary() = 0;
+		virtual void end_array() = 0;
 
 		virtual void add_null() = 0;
 		virtual void add_string(std::string&& value) = 0;
@@ -305,7 +305,7 @@ private:
 			_pimpl->add_value(std::move(value));
 		}
 
-		void reserve(size_t count) final
+		void reserve(std::size_t count) final
 		{
 			_pimpl->reserve(count);
 		}
@@ -330,9 +330,9 @@ private:
 			_pimpl->start_array();
 		}
 
-		void end_arrary() final
+		void end_array() final
 		{
-			_pimpl->end_arrary();
+			_pimpl->end_array();
 		}
 
 		void add_null() final
@@ -385,20 +385,20 @@ public:
 	template <class T>
 	ResolverVisitor(std::unique_ptr<T> writer) noexcept
 		: _concept { std::static_pointer_cast<Concept>(
-			std::make_shared<Model<T>>(std::move(writer))) }
+			  std::make_shared<Model<T>>(std::move(writer))) }
 	{
 	}
 
 	GRAPHQLSERVICE_EXPORT void add_value(std::shared_ptr<const response::Value>&& value);
 
-	GRAPHQLSERVICE_EXPORT void reserve(size_t count);
+	GRAPHQLSERVICE_EXPORT void reserve(std::size_t count);
 
 	GRAPHQLSERVICE_EXPORT void start_object();
 	GRAPHQLSERVICE_EXPORT void add_member(std::string&& key);
 	GRAPHQLSERVICE_EXPORT void end_object();
 
 	GRAPHQLSERVICE_EXPORT void start_array();
-	GRAPHQLSERVICE_EXPORT void end_arrary();
+	GRAPHQLSERVICE_EXPORT void end_array();
 
 	GRAPHQLSERVICE_EXPORT void add_null();
 	GRAPHQLSERVICE_EXPORT void add_string(std::string&& value);
@@ -410,8 +410,6 @@ public:
 
 	GRAPHQLSERVICE_EXPORT void add_error(schema_error&& error);
 };
-
-using AwaitableVisitor = internal::Awaitable<std::shared_ptr<ResolverVisitor>>;
 
 // Pass a common bundle of parameters to all of the generated Object::getField accessors in a
 // SelectionSet
@@ -671,6 +669,10 @@ struct [[nodiscard("unnecessary construction")]] ResolverParams : SelectionSetPa
 	// list field.
 	struct FieldData : std::enable_shared_from_this<FieldData>
 	{
+		GRAPHQLSERVICE_EXPORT explicit FieldData(const peg::ast_node& field,
+			std::string&& fieldName, response::Value&& arguments, Directives&& fieldDirectives,
+			const peg::ast_node* selection);
+
 		const peg::ast_node& field;
 		std::string fieldName;
 		response::Value arguments { response::Type::Map };
@@ -679,13 +681,14 @@ struct [[nodiscard("unnecessary construction")]] ResolverParams : SelectionSetPa
 	};
 
 	GRAPHQLSERVICE_EXPORT explicit ResolverParams(const SelectionSetParams& selectionSetParams,
-		std::shared_ptr<const FieldData>&& fieldData, AwaitableVisitor&& visitor,
-		const FragmentMap& fragments, const response::Value& variables);
+		std::shared_ptr<const FieldData>&& fieldData,
+		const std::shared_ptr<ResolverVisitor>& resolverVisitor, const FragmentMap& fragments,
+		const response::Value& variables);
 
 	[[nodiscard("unnecessary call")]] GRAPHQLSERVICE_EXPORT schema_location getLocation() const;
 
-	std::shared_ptr<const FieldData> fieldData;
-	AwaitableVisitor visitor;
+	const std::shared_ptr<const FieldData> fieldData;
+	const std::shared_ptr<ResolverVisitor> resolverVisitor;
 
 	// These values remain unchanged for the entire operation, but they're passed to each of the
 	// resolvers recursively through ResolverParams.
@@ -704,10 +707,6 @@ struct [[nodiscard("unnecessary construction")]] ResolverResult
 // Construct a ResolverVisitor that fills in a ResolverResult by default.
 GRAPHQLSERVICE_EXPORT std::shared_ptr<ResolverVisitor> makeResolverVisitor(
 	ResolverResult& result) noexcept;
-
-// Await a previously created instance of ResolverVisitor.
-GRAPHQLSERVICE_EXPORT AwaitableVisitor awaitResolverVisitor(
-	std::shared_ptr<ResolverVisitor> visitor) noexcept;
 
 using AwaitableResolver = internal::Awaitable<void>;
 using Resolver = std::function<AwaitableResolver(ResolverParams&&)>;
@@ -990,7 +989,7 @@ public:
 
 	[[nodiscard("unnecessary call")]] GRAPHQLSERVICE_EXPORT AwaitableResolver resolve(
 		const SelectionSetParams& selectionSetParams, const peg::ast_node& selection,
-		AwaitableVisitor&& resolverVisitor, const FragmentMap& fragments,
+		const std::shared_ptr<ResolverVisitor>& resolverVisitor, const FragmentMap& fragments,
 		const response::Value& variables) const;
 
 	[[nodiscard("unnecessary call")]] GRAPHQLSERVICE_EXPORT bool matchesType(
@@ -1149,9 +1148,6 @@ struct ModifiedResult
 		// Move the paramsArg into a local variable before the first suspension point.
 		auto params = std::move(paramsArg);
 
-		co_await params.launch;
-		params.visitor = awaitResolverVisitor(co_await params.visitor);
-
 		co_await Result<Object>::convert(std::static_pointer_cast<const Object>(co_await result),
 			std::move(params));
 	}
@@ -1167,9 +1163,6 @@ struct ModifiedResult
 		// Move the paramsArg into a local variable before the first suspension point.
 		auto params = std::move(paramsArg);
 
-		co_await params.launch;
-		params.visitor = awaitResolverVisitor(co_await params.visitor);
-
 		// Just call through to the partial specialization without the modifier.
 		co_await Result<Type>::convert(std::move(result), std::move(params));
 	}
@@ -1183,19 +1176,14 @@ struct ModifiedResult
 	{
 		// Move the paramsArg into a local variable before the first suspension point.
 		auto params = std::move(paramsArg);
-
-		co_await params.launch;
-
-		auto visitor = co_await params.visitor;
 		auto awaitedResult = co_await std::move(result);
 
 		if (!awaitedResult)
 		{
-			visitor->add_null();
+			params.resolverVisitor->add_null();
 			co_return;
 		}
 
-		params.visitor = awaitResolverVisitor(std::move(visitor));
 		co_await ModifiedResult::convert<Other...>(std::move(awaitedResult), std::move(params));
 	}
 
@@ -1213,10 +1201,6 @@ struct ModifiedResult
 		// Move the paramsArg into a local variable before the first suspension point.
 		auto params = std::move(paramsArg);
 
-		co_await params.launch;
-
-		auto visitor = co_await params.visitor;
-
 		if constexpr (!ObjectBaseType<Type>)
 		{
 			auto value = result.get_value();
@@ -1224,7 +1208,7 @@ struct ModifiedResult
 			if (value)
 			{
 				ModifiedResult::validateScalar<Modifier, Other...>(*value);
-				visitor->add_value(std::move(value));
+				params.resolverVisitor->add_value(std::move(value));
 				co_return;
 			}
 		}
@@ -1233,11 +1217,10 @@ struct ModifiedResult
 
 		if (!awaitedResult)
 		{
-			visitor->add_null();
+			params.resolverVisitor->add_null();
 			co_return;
 		}
 
-		params.visitor = awaitResolverVisitor(std::move(visitor));
 		co_await ModifiedResult::convert<Other...>(std::move(*awaitedResult), std::move(params));
 	}
 
@@ -1251,10 +1234,6 @@ struct ModifiedResult
 		// Move the paramsArg into a local variable before the first suspension point.
 		auto params = std::move(paramsArg);
 
-		co_await params.launch;
-
-		auto visitor = co_await params.visitor;
-
 		if constexpr (!ObjectBaseType<Type>)
 		{
 			auto value = result.get_value();
@@ -1262,79 +1241,53 @@ struct ModifiedResult
 			if (value)
 			{
 				ModifiedResult::validateScalar<Modifier, Other...>(*value);
-				visitor->add_value(std::move(value));
+				params.resolverVisitor->add_value(std::move(value));
 				co_return;
 			}
 		}
 
-		co_await params.launch;
-		params.visitor = awaitResolverVisitor(visitor);
-
-		std::vector<AwaitableResolver> children;
 		const auto parentPath = params.errorPath;
 		auto awaitedResult = co_await std::move(result);
 
-		children.reserve(awaitedResult.size());
-		visitor->start_array();
-		visitor->reserve(awaitedResult.size());
+		params.resolverVisitor->start_array();
+		params.resolverVisitor->reserve(awaitedResult.size());
 		params.errorPath = std::make_optional(
 			field_path { parentPath ? std::make_optional(std::cref(*parentPath)) : std::nullopt,
 				path_segment { std::size_t { 0 } } });
 
+		// Special handling for std::vector<> specializations which don't return a
+		// reference to the underlying type, i.e., std::vector<bool> on many platforms.
+		// Copy the values from the std::vector<> rather than moving them.
 		using vector_type = std::decay_t<decltype(awaitedResult)>;
+		using reference_type =
+			std::conditional_t<std::is_same_v<std::decay_t<typename vector_type::reference>,
+								   typename vector_type::value_type>,
+				typename vector_type::reference,
+				typename vector_type::value_type>;
 
-		if constexpr (!std::is_same_v<std::decay_t<typename vector_type::reference>,
-						  typename vector_type::value_type>)
-		{
-			// Special handling for std::vector<> specializations which don't return a
-			// reference to the underlying type, i.e. std::vector<bool> on many platforms.
-			// Copy the values from the std::vector<> rather than moving them.
-			for (typename vector_type::value_type entry : awaitedResult)
-			{
-				children.push_back(ModifiedResult::convert<Other...>(std::move(entry),
-					ResolverParams(params,
-						params.field,
-						std::string { params.fieldName },
-						response::Value { params.arguments }, )));
-				++std::get<std::size_t>(params.errorPath->segment);
-			}
-		}
-		else
-		{
-			for (auto& entry : awaitedResult)
-			{
-				children.push_back(
-					ModifiedResult::convert<Other...>(std::move(entry), ResolverParams(params)));
-				++std::get<std::size_t>(params.errorPath->segment);
-			}
-		}
-
-		std::get<std::size_t>(params.errorPath->segment) = 0;
-
-		for (auto& child : children)
+		for (reference_type entry : awaitedResult)
 		{
 			try
 			{
-				co_await params.launch;
-
-				co_await std::move(child);
+				co_await ModifiedResult::convert<Other...>(std::move(entry),
+					ResolverParams(params));
 			}
 			catch (schema_exception& scx)
 			{
 				auto errors = scx.getStructuredErrors();
 
-				for (auto& error : error)
+				for (auto& message : errors)
 				{
-					params.visitor.add_error(std::move(error));
+					params.resolverVisitor->add_error(std::move(message));
 				}
 			}
 			catch (const std::exception& ex)
 			{
 				auto message = std::format("Field error name: {} unknown error: {}",
-					params.fieldName,
+					params.fieldData->fieldName,
 					ex.what());
 
-				params.visitor.add_error(schema_error { std::move(message),
+				params.resolverVisitor->add_error(schema_error { std::move(message),
 					params.getLocation(),
 					buildErrorPath(params.errorPath) });
 			}
@@ -1342,7 +1295,7 @@ struct ModifiedResult
 			++std::get<std::size_t>(params.errorPath->segment);
 		}
 
-		visitor->end_array();
+		params.resolverVisitor->end_array();
 	}
 
 	// Peel off the none modifier. If it's included, it should always be last in the list.
@@ -1384,7 +1337,7 @@ struct ModifiedResult
 	}
 
 	using ResolverCallback =
-		std::function<AwaitableResolver(typename ResultTraits<Type>::type, ResolverParams&&)>;
+		std::function<void(typename ResultTraits<Type>::type, const ResolverParams&)>;
 
 	[[nodiscard("unnecessary call")]] static AwaitableResolver resolve(
 		typename ResultTraits<Type>::future_type result, ResolverParams&& paramsArg,
@@ -1394,27 +1347,24 @@ struct ModifiedResult
 
 		auto params = std::move(paramsArg);
 		auto resolver = std::move(resolverArg);
-		auto visitor = co_await params.visitor;
 		auto value = result.get_value();
 
 		if (value)
 		{
 			Result<Type>::validateScalar(*value);
-			visitor->add_value(std::move(value));
+			params.resolverVisitor->add_value(std::move(value));
 			co_return;
 		}
 
 		try
 		{
-			co_await params.launch;
-			params.visitor = awaitResolverVisitor(visitor);
 			resolver(co_await result, params);
 		}
 		catch (schema_exception& scx)
 		{
 			for (auto& error : scx.getStructuredErrors())
 			{
-				visitor->add_error(std::move(error));
+				params.resolverVisitor->add_error(std::move(error));
 			}
 		}
 		catch (const std::exception& ex)
@@ -1423,7 +1373,7 @@ struct ModifiedResult
 				params.fieldData->fieldName,
 				ex.what());
 
-			visitor->add_error(schema_error { std::move(message),
+			params.resolverVisitor->add_error(schema_error { std::move(message),
 				params.getLocation(),
 				buildErrorPath(params.errorPath) });
 		}

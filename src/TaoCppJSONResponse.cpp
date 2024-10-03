@@ -45,7 +45,7 @@ public:
 		_writer.begin_array();
 	}
 
-	void end_arrary()
+	void end_array()
 	{
 		_writer.end_array();
 		_scopeStack.pop_back();
