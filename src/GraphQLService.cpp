@@ -1387,7 +1387,7 @@ public:
 private:
 	void add_value(response::Value&& value);
 
-	std::mutex _mutex {};
+	std::recursive_mutex _mutex {};
 	ResolverResult& _result;
 	std::stack<response::Value> _values;
 	std::stack<std::string> _keys;
@@ -1400,8 +1400,6 @@ ResolverResultVisitor::ResolverResultVisitor(ResolverResult& result) noexcept
 
 void ResolverResultVisitor::add_value(std::shared_ptr<const response::Value>&& value)
 {
-	const std::lock_guard lock { _mutex };
-
 	add_value(response::Value { std::move(value) });
 }
 
