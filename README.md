@@ -70,13 +70,15 @@ service with `Node`, `Electron`, or `Tauri`. PRs with links to your own samples 
 ## Installation process
 
 The minimum OS and toolchain versions I've tested with this version of `cppgraphqlgen` are:
-- Microsoft Windows: Visual Studio 2019
-- Linux: Ubuntu 20.04 LTS with gcc 10.3.0
-- macOS: 11 (Big Sur) with AppleClang 13.0.0.
+- Microsoft Windows: Visual Studio 2022
+- Linux: Ubuntu 24.04 LTS with gcc 14.2.0 and clang 18.1.3
+- macOS: 14.7 with AppleClang 15.0.0.
 
-The key compiler requirement is support for C++20 including coroutines and concepts. Some of these compiler
-versions still treat coroutine support as experimental, and the CMake configuration can auto-detect that,
-but earlier versions of gcc and clang do not seem to have enough support for C++20.
+The key compiler requirement is support for C++20 including coroutines and concepts. There's also optional support
+for C++20 module (see the `GRAPHQL_BUILD_MODULES` configuration option for more details). Some of these compilers
+versions crash with an ICE (Internal Compiler Error) if you try to build the C++20 interface modules, so your mileage
+may vary. As of this writing, the Visual Studio 2022 compiler (MSVC 19.41.34123.0) on Windows and the clang 18.1.3
+compiler on Linux are both able to build them, gcc 14.2.0 and AppleClang 15.0.0 fail.
 
 The easiest way to build and install `cppgraphqlgen` is to use [microsoft/vcpkg](https://github.com/microsoft/vcpkg).
 See the [Getting Started](https://github.com/microsoft/vcpkg#getting-started) section of the `vcpkg` README
@@ -88,12 +90,16 @@ package (and its dependencies) are advertised to the `CMake` `find_package` func
 this in the `vcpkg` documentation.
 
 If you want to build `cppgraphqlgen` yourself, you can do that with `CMake` from a clone or archive of this repo.
-See the [Build and Test](#build-and-test) section below for instructions. You will need to install the dependencies
-first where `find_package` can find them. If `vcpkg` works otherwise, you can do that with `vcpkg install pegtl
-boost-program-options rapidjson gtest`. Some of these are optional, if for example you do not build the tests. If
-`vcpkg` does not work, please see the documentation for each of those dependencies, as well as your
-platform/toolchain documentation for perferred installation mechanisms. You may need to build some or all of them
-separately from source.
+See the [Build and Test](#build-and-test) section below for instructions. If you are using a clone, this repo includes
+a couple of (optional) sub-modules that can help, `PEGTL` and `vcpkg`. If you include the `vcpkg` sub-module in your
+clone (and run the `vcpkg/bootstrap-vcpkg` script for your platform), the presets in `CMakePresets.json` will
+automatically use this and cache the dependencies between builds.
+
+If you already have a separate installation of `vcpkg`, you can install all of the default dependencies with `vcpkg install
+pegtl boost-program-options taocpp-json gtest` first. Some of these are optional, if for example you do not build the tests.
+If `vcpkg` does not work, please see the documentation for each of those dependencies, as well as your platform/toolchain
+documentation for perferred installation mechanisms. You will need to install the dependencies first where `find_package`
+can find them. This may require building some or all of them separately from source.
 
 ## Software dependencies
 
@@ -109,9 +115,9 @@ the license text. Please see the license or copyright notice which comes with ea
 
 ### graphqlpeg
 
-- GraphQL parsing: [Parsing Expression Grammar Template Library (PEGTL)](https://github.com/taocpp/PEGTL) release 3.2.6,
-which is part of [The Art of C++](https://taocpp.github.io/) library collection. I've added this as a sub-module, so you
-do not need to install this separately. If you already have 3.2.6 installed where CMake can find it, it will use that
+- GraphQL parsing: [Parsing Expression Grammar Template Library (PEGTL)](https://github.com/taocpp/PEGTL) release 3.2.6
+or later, which is part of [The Art of C++](https://taocpp.github.io/) library collection. I've added this as a sub-module,
+so you do not need to install this separately. If you already have 3.2.6 installed where CMake can find it, it will use that
 instead of the sub-module and avoid installing another copy of PEGTL.
 
 ### graphqlservice
@@ -119,11 +125,14 @@ instead of the sub-module and avoid installing another copy of PEGTL.
 The core library depends on `graphqlpeg` and it references the PEGTL headers itself at build time. Both of those mean it
 depends on PEGTL as well.
 
-### graphqljson (`GRAPHQL_USE_RAPIDJSON=ON`)
+### graphqljson
 
-- JSON support: [RapidJSON](https://github.com/Tencent/rapidjson) release 1.1.0. If you don't need JSON support, you can
-also avoid installing this dependency. You will need to set `GRAPHQL_USE_RAPIDJSON=OFF` in your CMake configuration to
-do that.
+If you don't need JSON support, you can also avoid installing either of these dependencies. You will need
+to set both `GRAPHQL_USE_TAOCPP_JSON=OFF` and `GRAPHQL_USE_RAPIDJSON=OFF` in your CMake configuration to do that:
+  - `GRAPHQL_USE_TAOCPP_JSON=ON`: [taoJSON](https://github.com/taocpp/json). This is the default option and dependency
+  as of `cppgraphqlgen` v5.0 since it aligns with using `PEGTL`.
+  - `GRAPHQL_USE_RAPIDJSON=ON`: [RapidJSON](https://github.com/Tencent/rapidjson) release 1.1.0. This option and dependency
+  will be ignored if `GRAPHQL_USE_TAOCPP_JSON` is enabled.
 
 ### schemagen
 
@@ -167,17 +176,18 @@ Usage:  clientgen [options] <schema file> <request file> <output filename prefix
 Command line options:
   --version              Print the version number
   -? [ --help ]          Print the command line options
-  -v [ --verbose ]       Verbose output including generated header names as
+  -v [ --verbose ]       Verbose output including generated header names as 
                          well as sources
   -s [ --schema ] arg    Schema definition file path
   -r [ --request ] arg   Request document file path
-  -o [ --operation ] arg Operation name if the request document contains more
+  -o [ --operation ] arg Operation name if the request document contains more 
                          than one
   -p [ --prefix ] arg    Prefix to use for the generated C++ filenames
   -n [ --namespace ] arg C++ sub-namespace for the generated types
   --source-dir arg       Target path for the <prefix>Client.cpp source file
   --header-dir arg       Target path for the <prefix>Client.h header file
   --no-introspection     Do not expect support for Introspection
+  --shared-types         Re-use shared types from <prefix>SharedTypes.h
 ```
 
 This utility should output one header and one source file for each request document. A request document may contain more
@@ -216,9 +226,9 @@ There are several helper functions for `CMake` declared in
 other samples sub-directories for examples of how to use them to automatically rerun the code generators and update
 the files in your source directory.
 
-### Migrating from v3.x to main
+### Migrating from v4.x to main
 
-Please see the [Migration Guide for v4.x](./doc/migration.md) for more details about upgrading to from the `v3.x` branch
+Please see the [Migration Guide for v5.x](./doc/migration.md) for more details about upgrading to from the `v4.x` branch
 to the `main` branch. Active development takes place almost entirely in `main`.
 
 ### Additional Documentation
@@ -233,6 +243,7 @@ There are some more targeted documents in the [doc](./doc) directory:
 * [Field Parameters](./doc/fieldparams.md)
 * [Directives](./doc/directives.md)
 * [Subscriptions](./doc/subscriptions.md)
+* [Schema Stitching](./doc/stitching.md)
 
 ### Samples
 
@@ -244,7 +255,8 @@ All of the samples are under [samples](samples/), with nested sub-directories fo
 with the `schemagen --no-introspection` parameter. The mock implementation of the service for both schemas is in
 [samples/today/TodayMock.h](samples/today/TodayMock.h) and [samples/today/TodayMock.cpp](samples/today/TodayMock.cpp).
 It builds an interactive `sample`/`sample_nointrospection` and `benchmark`/`benchmark_nointrospection` target for
-each version, and it uses each of them in several unit tests.
+each version, and it uses each of them in several unit tests. _Note: The schema and mock implementation libraries
+do not depend on `GRAPHQL_BUILD_MODULES=ON`, but the `sample` executable and test dependencies do._
 - [samples/client](samples/client/): Several sample queries built with `clientgen` against the
 [schema.today.graphql](samples/today/schema.today.graphql) schema shared with [samples/today](samples/today/). It
 includes a `client_benchmark` executable for comparison with benchmark executables using the same hardcoded query
@@ -258,6 +270,8 @@ is no implementation of this schema, it relies entirely generated stubs (created
 successfully without defining more than placeholder objects fo the Query, Mutation, and Subscription operations in
 [samples/validation/ValidationMock.h](samples/validation/ValidationMock.h). It is used to test the validation logic
 with every example or counter-example in the spec in [test/ValidationTests.cpp](test/ValidationTests.cpp).
+- [samples/stitched](samples/stitched/): Stitches together the schemas in [samples/today](samples/today/) and
+[samples/learn](samples/learn/) using the `Request::stitch` method on each of the mock service implementations.
 - [samples/proxy](samples/proxy/) (`GRAPHQL_BUILD_HTTP_SAMPLE=ON`): Generates a `client` and `server` pair of
 executables which proxy requests from the `client` to the `server` over HTTP (on port 8080 for localhost). The HTTP
 support in both samples comes from [Boost.Beast](https://www.boost.org/doc/libs/1_82_0/libs/beast/doc/html/index.html),
@@ -270,7 +284,7 @@ borrow heavily from examples in the `Boost.Beast` documentation._
 ### Visual Studio on Windows
 
 Use the Open Folder command to open the root of the repo. If you've installed the dependencies with
-vcpkg and run its Visual Studio integration command, Visual Studio should know how to build each of
+`vcpkg` and run its Visual Studio integration command, Visual Studio should know how to build each of
 the targets in this project automatically.
 
 Once you've built the project Visual Studio's Test Explorer window should list the unit tests, and you
