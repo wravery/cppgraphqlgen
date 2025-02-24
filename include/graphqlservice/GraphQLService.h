@@ -139,7 +139,8 @@ constexpr std::string_view strSubscription { "subscription" };
 } // namespace keywords
 
 // Resolvers may be called in multiple different Operation contexts.
-enum class [[nodiscard("unnecessary conversion")]] ResolverContext {
+enum class [[nodiscard("unnecessary conversion")]] ResolverContext
+{
 	// Resolving a Query operation.
 	Query,
 
@@ -557,7 +558,8 @@ using ResolverMap = internal::string_view_map<Resolver>;
 // GraphQL types are nullable by default, but they may be wrapped with non-null or list types.
 // Since nullability is a more special case in C++, we invert the default and apply that modifier
 // instead when the non-null wrapper is not present in that part of the wrapper chain.
-enum class [[nodiscard("unnecessary conversion")]] TypeModifier {
+enum class [[nodiscard("unnecessary conversion")]] TypeModifier
+{
 	None,
 	Nullable,
 	List,
@@ -1368,7 +1370,7 @@ struct [[nodiscard("unnecessary construction")]] SubscriptionFilter
 	// Optional field argument filter, which can either be a set of required arguments, or a
 	// callback which returns true if the arguments match custom criteria.
 	std::optional<std::variant<SubscriptionArguments, SubscriptionArgumentFilterCallback>>
-		arguments;
+		arguments {};
 
 	// Optional field directives filter, which can either be a set of required directives and
 	// arguments, or a callback which returns true if the directives match custom criteria.

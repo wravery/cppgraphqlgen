@@ -18,32 +18,34 @@ arguments the schema specified.
 ## Details of Field Parameters
 
 The `graphql::service::FieldParams` struct is declared in [GraphQLService.h](../include/graphqlservice/GraphQLService.h):
+
 ```cpp
-// Pass a common bundle of parameters to all of the generated Object::getField accessors in a
-// SelectionSet
-struct [[nodiscard("unnecessary construction")]] SelectionSetParams
+// Resolver functors take a set of arguments encoded as members on a JSON object
+// with an optional selection set for complex types and return a JSON value for
+// a single field.
+struct [[nodiscard("unnecessary construction")]] ResolverParams : SelectionSetParams
 {
-	// Context for this selection set.
-	const ResolverContext resolverContext;
+	GRAPHQLSERVICE_EXPORT explicit ResolverParams(const SelectionSetParams& selectionSetParams,
+		const peg::ast_node& field, std::string&& fieldName, response::Value arguments,
+		Directives fieldDirectives, const peg::ast_node* selection, const FragmentMap& fragments,
+		const response::Value& variables);
 
-	// The lifetime of each of these borrowed references is guaranteed until the future returned
-	// by the accessor is resolved or destroyed. They are owned by the OperationData shared pointer.
-	const std::shared_ptr<RequestState>& state;
-	const Directives& operationDirectives;
-	const std::shared_ptr<FragmentDefinitionDirectiveStack> fragmentDefinitionDirectives;
+	[[nodiscard("unnecessary call")]] GRAPHQLSERVICE_EXPORT schema_location getLocation() const;
 
-	// Fragment directives are shared for all fields in that fragment, but they aren't kept alive
-	// after the call to the last accessor in the fragment. If you need to keep them alive longer,
-	// you'll need to explicitly copy them into other instances of Directives.
-	const std::shared_ptr<FragmentSpreadDirectiveStack> fragmentSpreadDirectives;
-	const std::shared_ptr<FragmentSpreadDirectiveStack> inlineFragmentDirectives;
+	// These values are different for each resolver.
+	const peg::ast_node& field;
+	std::string fieldName;
+	response::Value arguments { response::Type::Map };
+	Directives fieldDirectives;
+	const peg::ast_node* selection;
 
-	// Field error path to this selection set.
-	std::optional<field_path> errorPath;
-
-	// Async launch policy for sub-field resolvers.
-	const await_async launch {};
+	// These values remain unchanged for the entire operation, but they're passed to each of the
+	// resolvers recursively through ResolverParams.
+	const FragmentMap& fragments;
+	const response::Value& variables;
 };
+
+...
 
 // Pass a common bundle of parameters to all of the generated Object::getField accessors.
 struct [[nodiscard("unnecessary construction")]] FieldParams : SelectionSetParams
@@ -62,9 +64,10 @@ struct [[nodiscard("unnecessary construction")]] FieldParams : SelectionSetParam
 
 The `SelectionSetParams::resolverContext` enum member informs the `getField`
 accessors about what type of operation is being resolved:
+
 ```cpp
 // Resolvers may be called in multiple different Operation contexts.
-enum class [[nodiscard("unnecessary construction")]] ResolverContext {
+enum class [[nodiscard("unnecessary conversion")]] ResolverContext {
 	// Resolving a Query operation.
 	Query,
 
@@ -89,12 +92,14 @@ enum class [[nodiscard("unnecessary construction")]] ResolverContext {
 The `SelectionSetParams::state` member is a reference to the
 `std::shared_ptr<graphql::service::RequestState>` parameter passed to
 `Request::resolve` (see [resolvers.md](./resolvers.md) for more info):
+
 ```cpp
 // The RequestState is nullable, but if you have multiple threads processing requests and there's
 // any per-request state that you want to maintain throughout the request (e.g. optimizing or
 // batching backend requests), you can inherit from RequestState and pass it to Request::resolve to
 // correlate the asynchronous/recursive callbacks and accumulate state in it.
-struct [[nodiscard("unnecessary construction")]] RequestState : std::enable_shared_from_this<RequestState>
+struct [[nodiscard("unnecessary construction")]] RequestState
+	: std::enable_shared_from_this<RequestState>
 {
 	virtual ~RequestState() = default;
 };
@@ -106,6 +111,7 @@ Each of the `directives` members contains the values of the `directives` and
 any of their arguments which were in effect at that scope of the `query`.
 Implementers may inspect those values in the call to `getField` and alter their
 behavior based on those custom `directives`:
+
 ```cpp
 // Directive order matters, and some of them are repeatable. So rather than passing them in a
 // response::Value, pass directives in something like the underlying response::MapType which
@@ -113,8 +119,17 @@ behavior based on those custom `directives`:
 using Directives = std::vector<std::pair<std::string_view, response::Value>>;
 
 // Traversing a fragment spread adds a new set of directives.
-using FragmentDefinitionDirectiveStack = std::list<std::reference_wrapper<const Directives>>;
-using FragmentSpreadDirectiveStack = std::list<Directives>;
+struct [[nodiscard("unnecessary construction")]] FragmentDefinitionDirectiveStack
+{
+	const std::reference_wrapper<const Directives> directives;
+	const std::shared_ptr<FragmentDefinitionDirectiveStack> outer;
+};
+
+struct [[nodiscard("unnecessary construction")]] FragmentSpreadDirectiveStack
+{
+	const Directives directives;
+	const std::shared_ptr<FragmentSpreadDirectiveStack> outer;
+};
 ```
 
 As noted in the comments, the `fragmentSpreadDirectives` and
@@ -153,4 +168,4 @@ See the [Awaitable](./awaitable.md) document for more information about
 2. Awaitable types are covered in [awaitable.md](./awaitable.md).
 3. Built-in and custom `directives` are discussed in [directives.md](./directives.md).
 4. Subscription resolvers may be called 2 extra times, inside of `subscribe` and `unsubscribe`.
-See [subscriptions.md](./subscriptions.md) for more details.
+   See [subscriptions.md](./subscriptions.md) for more details.

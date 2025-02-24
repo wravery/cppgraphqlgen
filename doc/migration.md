@@ -1,9 +1,9 @@
-# Migration Guide for v4.x
+# Migration Guide for v5.x
 
-Most of the changes in v4.x affect services generated with `schemagen` more than clients generated with `clientgen`.
+The changes in v5.x affect services generated with `schemagen` and clients generated with `clientgen`.
 
 ## Adopting C++20
-  
+
 This version takes advantage of and requires the following C++20 features:
 
 - Coroutines (in either the `std` or `std::experimental` namespace)
@@ -40,27 +40,27 @@ Remove any unused `service::FieldParams` arguments. If your method does not take
 ## Decoupling Implementation Types from the Generated Types
 
 If your implementation is tightly coupled with the object hierarchy from the schema, here's an example of how you might decouple them. Let's assume that you have a schema that looks something like this:
+
 ```graphql
-interface Node
-{
-    id: ID!
+interface Node {
+  id: ID!
 }
 
-type NodeTypeA implements Node
-{
-     id: ID!
-     # More fields specific to NodeTypeA...
+type NodeTypeA implements Node {
+  id: ID!
+  # More fields specific to NodeTypeA...
 }
 
-type NodeTypeB implements Node
-{
-     id: ID!
-     # More fields specific to NodeTypeB...
+type NodeTypeB implements Node {
+  id: ID!
+  # More fields specific to NodeTypeB...
 }
 
 # ...and so on for NodeTypeC, NodeTypeD, etc.
 ```
+
 If you want a collection of `Node` interface objects, the C++ implementation using inheritance in prior versions might look something like:
+
 ```c++
 class NodeTypeA : public object::NodeTypeA
 {
@@ -80,9 +80,11 @@ std::vector<std::shared_ptr<service::Object>> nodes {
     // Can insert any sub-class of service::Object...
 };
 ```
+
 It's up to you to make sure the `nodes` vector in this example only contains objects which actually implement the `Node` interface. If you want to do something more sophisticated like performing a lookup by `id`, you'd either need to request that before inserting an element and up-casting to `std::shared_ptr<service::Object>`, or you'd need to preserve the concrete type of each element, e.g. in a `std::variant` to be able to safely down-cast to the concrete type.
 
 As of 4.x, the implementation might look more like this:
+
 ```c++
 class NodeTypeImpl
 {
@@ -145,6 +147,7 @@ std::vector<std::shared_ptr<object::Node>> wrap_nodes()
     return result;
 }
 ```
+
 This has several advantages over the previous version.
 
 - You can declare your own inheritance heirarchy without any constraints inherited from `service::Object`, such as already inheriting from `std::enable_shared_from_this<service::Object>` and defininig `shared_from_this()` for that type.
@@ -162,6 +165,7 @@ For a long time, `schemagen` also supported a `--separate-files` flag which woul
 In v4.x, the separate files option is not only the default, it's the only option. Supporting both modes of code generation would have added too much complexity and too many tradeoffs for the simplified build logic. Instead, v4.x adds several CMake helper functions in [cmake/cppgraphqlgen-functions.cmake](../cmake/cppgraphqlgen-functions.cmake) which encapsulate the best practices for regenerating and building the schema targets dynamically when the schema file changes. These functions are automatically included by `find_package(cppgraphqlgen)`.
 
 Replace custom CMake logic to invoke `schemagen` and `clientgen` with these helper functions:
+
 - `update_graphql_schema_files`: Runs `schemagen` with required parameters and additional optional parameters.
 - `update_graphql_client_files`: Runs `clientgen` with required parameters and additional optional parameters.
 
@@ -170,6 +174,7 @@ The output is generated in the CMake build directory. The files are compared aga
 _IMPORTANT_: The `update_graphql_schema_files` and `update_graphql_client_files` functions expect to generate sources in a separate sub-directory from any other source code. They will check for any source files that don't match the naming patterns of the code generators and fail the build rather than deleting them. Just in case, it's a good idea to make sure you have your source code backed up or under source control (e.g. committed in a git repository) before invoking these CMake functions.
 
 Declare library targets which automatically include all of the generated files with these helper functions:
+
 - `add_graphql_schema_target`: Declares a library target for the specified schema which depends on the output of `update_graphql_schema_files` and automatically links all of the shared library dependencies needed for a service.
 - `add_graphql_client_target`: Declares a library target for the specified client which depends on the output of `update_graphql_client_files` and automatically links all of the shared library dependencies needed for a client.
 

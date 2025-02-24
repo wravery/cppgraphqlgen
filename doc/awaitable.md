@@ -6,6 +6,7 @@ In previous versions, this was a `std::launch` enum value used with the
 `std::async` standard library function. Now, this is a C++20 `Awaitable`,
 specifically a type-erased `graphql::service::await_async` class in
 [GraphQLService.h](../include/graphqlservice/GraphQLService.h):
+
 ```cpp
 // Type-erased awaitable.
 class [[nodiscard("unnecessary construction")]] await_async final
@@ -19,35 +20,27 @@ private:
 		virtual void await_suspend(std::coroutine_handle<> h) const = 0;
 		virtual void await_resume() const = 0;
 	};
-...
+
+	...
 
 public:
 	// Type-erased explicit constructor for a custom awaitable.
 	template <class T>
-	explicit await_async(std::shared_ptr<T> pimpl)
+	explicit await_async(std::shared_ptr<T> pimpl) noexcept
 		: _pimpl { std::make_shared<Model<T>>(std::move(pimpl)) }
 	{
 	}
 
 	// Default to immediate synchronous execution.
-	await_async()
-		: _pimpl { std::static_pointer_cast<const Concept>(
-			std::make_shared<Model<std::suspend_never>>(std::make_shared<std::suspend_never>())) }
-	{
-	}
+	GRAPHQLSERVICE_EXPORT await_async();
 
 	// Implicitly convert a std::launch parameter used with std::async to an awaitable.
-	await_async(std::launch launch)
-		: _pimpl { ((launch & std::launch::async) == std::launch::async)
-				? std::static_pointer_cast<const Concept>(std::make_shared<Model<await_worker_thread>>(
-					std::make_shared<await_worker_thread>()))
-				: std::static_pointer_cast<const Concept>(std::make_shared<Model<std::suspend_never>>(
-					std::make_shared<std::suspend_never>())) }
-	{
-	}
-...
+	GRAPHQLSERVICE_EXPORT await_async(std::launch launch);
+
+	...
 };
 ```
+
 For convenience, it will use `graphql::service::await_worker_thread` if you specify `std::launch::async`,
 which should have the same behavior as calling `std::async(std::launch::async, ...)` did before.
 
@@ -68,7 +61,8 @@ coroutine when and where it likes.
 ## Awaitable Results
 
 Many APIs which used to return some sort of `std::future` now return an alias for
-`graphql::internal::Awaitable<...>`. This template is defined in [Awaitable.ixx](../include/graphqlservice/internal/Awaitable.ixx):
+`graphql::internal::Awaitable<...>`. This template is defined in [Awaitable.h](../include/graphqlservice/internal/Awaitable.h):
+
 ```cpp
 template <typename T>
 class [[nodiscard("unnecessary construction")]] Awaitable
@@ -93,16 +87,15 @@ public:
 
 		...
 
-		void return_value(T&& value) noexcept(std::is_nothrow_move_constructible_v<T>)
+		void return_value(const T& value) noexcept(std::is_nothrow_copy_constructible_v<T>)
 		{
-			_promise.set_value(std::move(value));
+			_promise.set_value(value);
 		}
 
 		...
 
 	private:
 		std::promise<T> _promise;
-
 	};
 
 	[[nodiscard("unexpected call")]] constexpr bool await_ready() const noexcept
@@ -145,6 +138,7 @@ also return `std::shared_ptr<const response::Value>` directly, which bypasses al
 conversion logic in `service::ModifiedResult` and just validates that the shape of the
 `response::Value` matches the `scalar` type with all of its modifiers. These are both defined
 in [GraphQLService.h](../include/graphqlservice/GraphQLService.h):
+
 ```cpp
 // Field accessors may return either a result of T, an awaitable of T, or a std::future<T>, so at
 // runtime the implementer may choose to return by value or defer/parallelize expensive operations
@@ -153,7 +147,7 @@ in [GraphQLService.h](../include/graphqlservice/GraphQLService.h):
 // If the overhead of conversion to response::Value is too expensive, scalar type field accessors
 // can store and return a std::shared_ptr<const response::Value> directly.
 template <typename T>
-class AwaitableScalar
+class [[nodiscard("unnecessary construction")]] AwaitableScalar
 {
 public:
 	template <typename U>
@@ -164,7 +158,7 @@ public:
 
 	struct promise_type
 	{
-		AwaitableScalar<T> get_return_object() noexcept
+		[[nodiscard("unnecessary construction")]] AwaitableScalar<T> get_return_object() noexcept
 		{
 			return { _promise.get_future() };
 		}
@@ -176,27 +170,29 @@ public:
 			_promise.set_value(value);
 		}
 
-		void return_value(T&& value) noexcept(std::is_nothrow_move_constructible_v<T>)
-		{
-			_promise.set_value(std::move(value));
-		}
-
 		...
 
 	private:
 		std::promise<T> _promise;
 	};
 
-	bool await_ready() const noexcept { ... }
+	[[nodiscard("unexpected call")]] constexpr bool await_ready() const noexcept
+	{
+		...
+	}
 
-	void await_suspend(std::coroutine_handle<> h) const { ... }
+	void await_suspend(std::coroutine_handle<> h) const
+	{
+		...
+	}
 
-	T await_resume()
+	[[nodiscard("unnecessary construction")]] T await_resume()
 	{
 		... // Throws std::logic_error("Cannot await std::shared_ptr<const response::Value>") if called with that alternative
 	}
 
-	std::shared_ptr<const response::Value> get_value() noexcept
+	[[nodiscard("unnecessary construction")]] std::shared_ptr<const response::Value>
+	get_value() noexcept
 	{
 		... // Returns an empty std::shared_ptr if called with a different alternative
 	}
@@ -209,7 +205,7 @@ private:
 // runtime the implementer may choose to return by value or defer/parallelize expensive operations
 // by returning an async future or an awaitable coroutine.
 template <typename T>
-class AwaitableObject
+class [[nodiscard("unnecessary construction")]] AwaitableObject
 {
 public:
 	template <typename U>
@@ -220,7 +216,7 @@ public:
 
 	struct promise_type
 	{
-		AwaitableObject<T> get_return_object() noexcept
+		[[nodiscard("unnecessary construction")]] AwaitableObject<T> get_return_object() noexcept
 		{
 			return { _promise.get_future() };
 		}
@@ -232,22 +228,26 @@ public:
 			_promise.set_value(value);
 		}
 
-		void return_value(T&& value) noexcept(std::is_nothrow_move_constructible_v<T>)
-		{
-			_promise.set_value(std::move(value));
-		}
-
 		...
 
 	private:
 		std::promise<T> _promise;
 	};
 
-	bool await_ready() const noexcept { ... }
+	[[nodiscard("unexpected call")]] constexpr bool await_ready() const noexcept
+	{
+		...
+	}
 
-	void await_suspend(std::coroutine_handle<> h) const { ... }
+	void await_suspend(std::coroutine_handle<> h) const
+	{
+		...
+	}
 
-	T await_resume() { ... }
+	[[nodiscard("unnecessary construction")]] T await_resume()
+	{
+		...
+	}
 
 private:
 	std::variant<T, std::future<T>> _value;

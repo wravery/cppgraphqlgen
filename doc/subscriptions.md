@@ -12,17 +12,20 @@ the subscriptions to those listeners.
 
 Subscriptions are created by calling the `Request::subscribe` method in
 [GraphQLService.h](../include/graphqlservice/GraphQLService.h):
+
 ```cpp
-[[nodiscard("leaked subscription")]] GRAPHQLSERVICE_EXPORT AwaitableSubscribe subscribe(RequestSubscribeParams params);
+[[nodiscard("leaked subscription")]] GRAPHQLSERVICE_EXPORT AwaitableSubscribe subscribe(
+	RequestSubscribeParams params);
 ```
 
 You need to fill in a `RequestSubscribeParams` struct with the subscription event
 callback, the [parsed](./parsing.md) `query` and any other relevant operation parameters:
+
 ```cpp
 struct [[nodiscard("unnecessary construction")]] RequestSubscribeParams
 {
 	// Callback which receives the event data.
-	SubscriptionCallback callback;
+	SubscriptionCallbackOrVisitor callback;
 
 	// Required query information.
 	peg::ast query;
@@ -30,21 +33,24 @@ struct [[nodiscard("unnecessary construction")]] RequestSubscribeParams
 	response::Value variables { response::Type::Map };
 
 	// Optional async execution awaitable.
-	await_async launch;
+	await_async launch {};
 
 	// Optional sub-class of RequestState which will be passed to each resolver and field accessor.
-	std::shared_ptr<RequestState> state;
+	std::shared_ptr<RequestState> state {};
 
 	// Optional override for the default Subscription operation object.
 	std::shared_ptr<const Object> subscriptionObject {};
 };
 ```
 
-The `SubscriptionCallback` signature is:
+The `SubscriptionCallbackOrVisitor` type is:
+
 ```cpp
 // Subscription callbacks receive the response::Value representing the result of evaluating the
 // SelectionSet against the payload.
 using SubscriptionCallback = std::function<void(response::Value)>;
+using SubscriptionVisitor = std::function<void(ResolverResult)>;
+using SubscriptionCallbackOrVisitor = std::variant<SubscriptionCallback, SubscriptionVisitor>;
 ```
 
 The `service::await_async` launch policy is described in [awaitable.md](./awaitable.md).
@@ -54,21 +60,26 @@ The `std::shared_ptr<RequestState>` state is described in [fieldparams.md](./fie
 
 The `AwaitableSubscribe` return type is a type alias in
 [GraphQLResponse.h](../include/graphqlservice/GraphQLResponse.h):
+
 ```cpp
 using AwaitableSubscribe = internal::Awaitable<SubscriptionKey>;
 ```
+
 The `internal::Awaitable<T>` template is described in [awaitable.md](./awaitable.md).
 
 ## Removing a Listener
 
 Subscriptions are removed by calling the `Request::unsubscribe` method in
 [GraphQLService.h](../include/graphqlservice/GraphQLService.h):
+
 ```cpp
-[[nodiscard("potentially leaked subscription")]] GRAPHQLSERVICE_EXPORT AwaitableUnsubscribe unsubscribe(RequestUnsubscribeParams params);
+[[nodiscard("potentially leaked subscription")]] GRAPHQLSERVICE_EXPORT AwaitableUnsubscribe
+unsubscribe(RequestUnsubscribeParams params);
 ```
 
 You need to fill in a `RequestUnsubscribeParams` struct with the `SubscriptionKey`
 returned by `Request::subscribe` in `AwaitableSubscribe`:
+
 ```cpp
 struct [[nodiscard("unnecessary construction")]] RequestUnsubscribeParams
 {
@@ -76,7 +87,7 @@ struct [[nodiscard("unnecessary construction")]] RequestUnsubscribeParams
 	SubscriptionKey key;
 
 	// Optional async execution awaitable.
-	await_async launch;
+	await_async launch {};
 
 	// Optional override for the default Subscription operation object.
 	std::shared_ptr<const Object> subscriptionObject {};
@@ -109,13 +120,16 @@ If you pass an empty `std::shared_ptr<object::Subscription>` for the
 against the default `Subscription` object passed to the `Request`/`Operations`
 constructor. If both `Subscription` object parameters are empty, `deliver`
 will throw an exception:
+
 ```cpp
-GRAPHQLSERVICE_EXPORT AwaitableDeliver deliver(RequestDeliverParams params) const;
+[[nodiscard("potentially leaked event")]] GRAPHQLSERVICE_EXPORT AwaitableDeliver deliver(
+	RequestDeliverParams params) const;
 ```
 
 The `Request::deliver` method determines which subscriptions should receive
 an event based on several factors, which makes the `RequestDeliverParams` struct
 more complicated:
+
 ```cpp
 struct [[nodiscard("unnecessary construction")]] RequestDeliverParams
 {
@@ -124,19 +138,20 @@ struct [[nodiscard("unnecessary construction")]] RequestDeliverParams
 
 	// Optional filter to control which subscriptions will receive the event. If not specified,
 	// every subscription on this field will receive the event and evaluate their queries.
-	RequestDeliverFilter filter;
+	RequestDeliverFilter filter {};
 
 	// Optional async execution awaitable.
-	await_async launch;
+	await_async launch {};
 
 	// Optional override for the default Subscription operation object.
-	std::shared_ptr<Object> subscriptionObject;
+	std::shared_ptr<const Object> subscriptionObject {};
 };
 ```
 
 First, the `Request::deliver` method selects only the subscriptions which are listening
 to events for this field. Then, if you specify the `RequestDeliverFilter`, it filters the set
 of subscriptions down to the ones which it matches:
+
 ```cpp
 // Deliver to a specific subscription key, or apply custom criteria for the field name, arguments,
 // and directives in the Subscription query.
@@ -150,6 +165,7 @@ The `SubscriptionFilter struct` adds alternative filters for the field arguments
 directives which might have been specified in the subscription query. For each one, you can either
 specify a callback which will test each argument or directive, or you can specify a set of required
 arguments or directives which must all be present:
+
 ```cpp
 using SubscriptionArguments = std::map<std::string_view, response::Value>;
 using SubscriptionArgumentFilterCallback = std::function<bool(response::MapType::const_reference)>;
@@ -160,11 +176,11 @@ struct [[nodiscard("unnecessary construction")]] SubscriptionFilter
 	// Optional field argument filter, which can either be a set of required arguments, or a
 	// callback which returns true if the arguments match custom criteria.
 	std::optional<std::variant<SubscriptionArguments, SubscriptionArgumentFilterCallback>>
-		arguments;
+		arguments {};
 
 	// Optional field directives filter, which can either be a set of required directives and
 	// arguments, or a callback which returns true if the directives match custom criteria.
-	std::optional<std::variant<Directives, SubscriptionDirectiveFilterCallback>> directives;
+	std::optional<std::variant<Directives, SubscriptionDirectiveFilterCallback>> directives {};
 };
 ```
 
@@ -185,7 +201,9 @@ a specific operation name, so it's hard to tell whether you should call
 that, there's a public `Request::findOperationDefinition` method which returns
 the operation type as a `std::string_view` along with a pointer to the AST node
 for the selected operation in the parsed query:
+
 ```cpp
-[[nodiscard("unnecessary call")]] GRAPHQLSERVICE_EXPORT std::pair<std::string_view, const peg::ast_node*>
+[[nodiscard("unnecessary call")]] GRAPHQLSERVICE_EXPORT std::pair<std::string_view,
+	const peg::ast_node*>
 findOperationDefinition(peg::ast& query, std::string_view operationName) const;
 ```

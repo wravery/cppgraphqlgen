@@ -4,9 +4,9 @@
 
 As mentioned in the [README](../README.md), `cppgraphqlgen` uses the
 [Parsing Expression Grammar Template Library (PEGTL)](https://github.com/taocpp/PEGTL)
-release 3.1.1, which is part of [The Art of C++](https://taocpp.github.io/)
+release 3.2.7, which is part of [The Art of C++](https://taocpp.github.io/)
 library collection. I've added this as a sub-module, so you do not need to
-install this separately. If you already have 3.1.1 installed where CMake can
+install this separately. If you already have 3.2.7 installed where CMake can
 find it, it will use that instead of the sub-module and avoid installing
 another copy of PEGTL.
 

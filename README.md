@@ -298,14 +298,14 @@ change the config from `Debug` (default) to `Release`, use another build tool li
 to install the dependencies, remember to specify the `-DCMAKE_TOOLCHAIN_FILE=...` option when you run the initial build
 configuration.
 
-- Create a build directory: `"mkdir build && cd build"`
-- Configure the build system: `"cmake .."`
-- Tell CMake to invoke the build system: `"cmake --build ."` _You can repeat this step to rebuild your changes._
-- CTest comes with CMake and runs the tests: `"ctest ."` _Run this frequently, and make sure it passes before commits._
+- Configure the build system: `cmake --preset debug`
+- Tell CMake to invoke the build system: `cmake --build --preset debug` _You can repeat this step to rebuild your changes._
+- CTest comes with CMake and runs the tests: `ctest --preset debug` _Run this frequently, and make sure it passes before commits._
 
 You can then optionally install the public outputs by configuring it with `Release`:
-- `cmake -DCMAKE_BUILD_TYPE=Release ..`
-- `cmake --build . --target install` _You probably need to use `sudo` on Unix to do this._
+- `cmake --preset release`
+- `cmake --build --preset release`
+- `cmake --build --target install --preset release` _You probably need to use `sudo` on Unix to do this._
 
 ## Interactive tests
 

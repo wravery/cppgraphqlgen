@@ -39,7 +39,7 @@ GRAPHQLSERVICE_EXPORT response::AwaitableValue resolve(RequestResolveParams para
 
 The `RequestResolveParams` struct is defined in the same header:
 ```cpp
-struct RequestResolveParams
+struct [[nodiscard("unnecessary construction")]] RequestResolveParams
 {
 	// Required query information.
 	peg::ast& query;
@@ -47,10 +47,10 @@ struct RequestResolveParams
 	response::Value variables { response::Type::Map };
 
 	// Optional async execution awaitable.
-	await_async launch;
+	await_async launch {};
 
 	// Optional sub-class of RequestState which will be passed to each resolver and field accessor.
-	std::shared_ptr<RequestState> state;
+	std::shared_ptr<RequestState> state {};
 };
 ```
 
@@ -88,8 +88,9 @@ sample in [AppointmentObject.cpp](../samples/today/schema/AppointmentObject.cpp)
 service::AwaitableResolver Appointment::resolveId(service::ResolverParams&& params) const
 {
 	std::unique_lock resolverLock(_resolverMutex);
+	service::SelectionSetParams selectionSetParams { static_cast<const service::SelectionSetParams&>(params) };
 	auto directives = std::move(params.fieldDirectives);
-	auto result = _pimpl->getId(service::FieldParams(service::SelectionSetParams{ params }, std::move(directives)));
+	auto result = _pimpl->getId(service::FieldParams { std::move(selectionSetParams), std::move(directives) });
 	resolverLock.unlock();
 
 	return service::ModifiedResult<response::IdType>::convert(std::move(result), std::move(params));
@@ -98,7 +99,7 @@ service::AwaitableResolver Appointment::resolveId(service::ResolverParams&& para
 In this example, the `resolveId` method invokes `Concept::getId(service::FieldParams&&)`,
 which is implemented by `Model<T>::getId(service::FieldParams&&)`:
 ```cpp
-service::AwaitableScalar<response::IdType> getId(service::FieldParams&& params) const final
+[[nodiscard("unnecessary call")]] service::AwaitableScalar<response::IdType> getId(service::FieldParams&& params) const override
 {
 	if constexpr (methods::AppointmentHas::getIdWithParams<T>)
 	{
@@ -110,7 +111,7 @@ service::AwaitableScalar<response::IdType> getId(service::FieldParams&& params) 
 	}
 	else
 	{
-		throw std::runtime_error(R"ex(Appointment::getId is not implemented)ex");
+		throw service::unimplemented_method(R"ex(Appointment::getId)ex");
 	}
 }
 ```
@@ -151,7 +152,7 @@ Compared to the type-erased objects generated for the [learn](../samples/learn/)
 adds a `static_assert` instead, so it will trigger a compile-time error if you do not
 implement all of the field getters:
 ```cpp
-service::AwaitableScalar<std::string> getId(service::FieldParams&& params) const final
+[[nodiscard("unnecessary call")]] service::AwaitableScalar<response::IdType> getId(service::FieldParams&& params) const override
 {
 	if constexpr (methods::HumanHas::getIdWithParams<T>)
 	{
